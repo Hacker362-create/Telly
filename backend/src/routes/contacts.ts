@@ -33,7 +33,7 @@ router.get(
           { id: { not: req.userId } },          // exclude self
           {
             OR: [
-              { name: { contains: q, mode: 'insensitive' } },
+              { name: { contains: q } },
               { phoneNumber: { contains: q } },
             ],
           },

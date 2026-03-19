@@ -6,6 +6,10 @@
 import { Server, Socket } from 'socket.io';
 import * as http from 'http';
 import { PrismaClient } from '@prisma/client';
+
+// WebRTC payload shapes relayed over Socket.io (browser types not in Node lib)
+type RTCSessionDescriptionInit = { type: string; sdp?: string };
+type RTCIceCandidateInit = { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null };
 import { gatekeeperMiddleware } from './Gatekeeper';
 import { sendIncomingCallPush, storeDeviceToken } from '../notifications/push';
 import {
