@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.js.map
+*.d.ts
+coverage/
+.nyc_output/
+
+# Prisma
+prisma/migrations/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Python
+*.pyc
+venv/
+.venv/

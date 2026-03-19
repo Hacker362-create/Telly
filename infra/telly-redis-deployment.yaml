@@ -1,0 +1,53 @@
+# telly-redis-deployment.yaml
+# Redis cluster for session state, subscription caching, and idempotency keys.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telly-redis
+  namespace: telly
+  labels:
+    app: telly-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telly-redis
+  template:
+    metadata:
+      labels:
+        app: telly-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: telly-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telly-redis-svc
+  namespace: telly
+spec:
+  selector:
+    app: telly-redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP

@@ -1,0 +1,76 @@
+# telly-media-pod.yaml
+# Kubernetes pod configuration for the Mediasoup SFU media server.
+# Uses hostNetwork for zero latency overhead and Nairobi/Cape Town PoPs
+# via AWS Global Accelerator.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telly-media-sfu
+  namespace: telly
+  labels:
+    app: telly-media-sfu
+    tier: media
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: telly-media-sfu
+  template:
+    metadata:
+      labels:
+        app: telly-media-sfu
+        tier: media
+    spec:
+      hostNetwork: true   # Zero latency overhead – voice packets go straight to NIC
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        topology.kubernetes.io/region: af-south-1   # Cape Town / Nairobi Local Zone
+      tolerations:
+        - key: "media-server"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: mediasoup-worker
+          image: telly/media-sfu:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 2000
+              protocol: UDP
+              name: rtp-min
+            - containerPort: 2999
+              protocol: UDP
+              name: rtp-max
+            - containerPort: 3000
+              protocol: TCP
+              name: signaling
+          env:
+            - name: MEDIASOUP_RTC_MIN_PORT
+              value: "2000"
+            - name: MEDIASOUP_RTC_MAX_PORT
+              value: "2999"
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: telly-secrets
+                  key: REDIS_HOST
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"   # 2 dedicated cores per pod for audio processing
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5

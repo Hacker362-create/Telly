@@ -1,0 +1,49 @@
+// prisma/schema.prisma
+// Database schema for the Telly VoIP platform.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String        @id @default(uuid())
+  name               String
+  email              String        @unique
+  passwordHash       String
+  phoneNumber        String        @unique
+  isActive           Boolean       @default(false)
+  subscriptionExpiry DateTime
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  transactions       Transaction[]
+  callsAsCallee      CallLog[]     @relation("callee")
+  callsAsCaller      CallLog[]     @relation("caller")
+}
+
+model Transaction {
+  id                 String   @id @default(uuid())
+  userId             String
+  amount             Float
+  mpesaReceiptNumber String
+  checkoutRequestId  String   @unique
+  status             String   // SUCCESS | FAILED | PENDING
+  createdAt          DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id])
+}
+
+model CallLog {
+  id         String    @id @default(uuid())
+  callerId   String
+  calleeId   String
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  durationMs Int?
+  dataBytes  Int?
+  caller     User      @relation("caller", fields: [callerId], references: [id])
+  callee     User      @relation("callee", fields: [calleeId], references: [id])
+}

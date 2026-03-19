@@ -1,0 +1,66 @@
+# docker-compose.yml
+# Local development environment for Telly backend services.
+
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: telly
+      POSTGRES_USER: telly
+      POSTGRES_PASSWORD: telly_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telly"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://telly:telly_dev_password@postgres:5432/telly
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev-jwt-secret-change-in-prod
+      MPESA_BASE_URL: https://sandbox.safaricom.co.ke
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+      - /app/node_modules
+
+  bot:
+    build:
+      context: ../bot
+      dockerfile: Dockerfile
+    environment:
+      SIGNALING_URL: http://backend:3000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
