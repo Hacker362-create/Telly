@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 AZURE_TTS_KEY = os.getenv("AZURE_TTS_KEY", "")
-AZURE_TTS_REGION = os.getenv("AZURE_TTS_REGION", "eastafrica")
+AZURE_TTS_REGION = os.getenv("AZURE_TTS_REGION", "southafricanorth")
 SIGNALING_URL = os.getenv("SIGNALING_URL", "http://localhost:3000")
 
 SYSTEM_PROMPT = """You are Telly Brain, an AI assistant embedded in the Telly VoIP platform.

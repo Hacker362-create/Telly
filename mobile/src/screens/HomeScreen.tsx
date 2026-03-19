@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { signalingService } from '../services/SignalingService';
@@ -27,9 +28,11 @@ const DEMO_CONTACTS = [
 
 export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [userName, setUserName] = useState('');
 
   useEffect(() => {
     subscriptionService.checkStatus().then(setIsSubscribed);
+    AsyncStorage.getItem('userName').then((n) => setUserName(n ?? ''));
 
     signalingService.onIncomingCall((callId, callerId) => {
       Alert.alert('Incoming Call', `Call from ${callerId}`, [
@@ -44,20 +47,58 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
 
   const handleCall = (contactId: string): void => {
     if (!isSubscribed) {
-      Alert.alert('No Active Subscription', 'Subscribe for KES 500/month to make calls.');
+      Alert.alert(
+        'No Active Subscription',
+        'Subscribe for KES 500/month to make calls.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Subscribe', onPress: () => navigation.navigate('Subscription') },
+        ],
+      );
       return;
     }
     const callId = signalingService.initiateCall(contactId);
     navigation.navigate('Call', { callId, remoteUserId: contactId, incoming: false });
   };
 
+  const handleLogout = async (): Promise<void> => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          signalingService.disconnect();
+          await AsyncStorage.multiRemove(['authToken', 'userId', 'userName', 'userPhone']);
+          navigation.replace('Login');
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.container}>
-      <View style={[styles.badge, isSubscribed ? styles.activeBadge : styles.inactiveBadge]}>
-        <Text style={styles.badgeText}>
-          {isSubscribed ? '✓ Telly Active' : '⚠ Subscribe for KES 500/month'}
+      {/* Top bar with greeting and logout */}
+      <View style={styles.topBar}>
+        <Text style={styles.greeting} numberOfLines={1}>
+          {userName ? `Hi, ${userName.split(' ')[0]}` : 'Telly'}
         </Text>
+        <TouchableOpacity onPress={handleLogout}>
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Subscription badge — tapping while inactive navigates to subscribe */}
+      <TouchableOpacity
+        style={[styles.badge, isSubscribed ? styles.activeBadge : styles.inactiveBadge]}
+        onPress={() => !isSubscribed && navigation.navigate('Subscription')}
+        activeOpacity={isSubscribed ? 1 : 0.7}
+      >
+        <Text style={styles.badgeText}>
+          {isSubscribed ? '✓ Telly Active' : '⚠ Tap to Subscribe — KES 500/month'}
+        </Text>
+      </TouchableOpacity>
+
       <FlatList
         data={DEMO_CONTACTS}
         keyExtractor={(item) => item.id}
@@ -80,6 +121,16 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#1A237E',
+  },
+  greeting: { color: '#FFF', fontSize: 16, fontWeight: '600', flex: 1 },
+  logoutText: { color: '#90CAF9', fontSize: 14 },
   badge: { padding: 12, alignItems: 'center' },
   activeBadge: { backgroundColor: '#4CAF50' },
   inactiveBadge: { backgroundColor: '#FF9800' },

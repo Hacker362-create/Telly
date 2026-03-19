@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Minimal permissions: only read-only checkout is needed.
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend tests

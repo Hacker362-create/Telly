@@ -7,6 +7,7 @@
 // the signaling server. They are automatically evicted after 30 days if not refreshed.
 
 import axios from 'axios';
+import IORedis from 'ioredis';
 
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY ?? '';
 const FCM_API_URL = 'https://fcm.googleapis.com/fcm/send';
@@ -31,7 +32,20 @@ export function setPushRedisClient(client: RedisCache): void {
   _redis = client;
 }
 
-function getRedis(): RedisCache | null {
+/**
+ * Return the push-service Redis client.
+ * Falls back to creating a real IORedis client on first call when no
+ * custom client has been injected (e.g. in production).
+ */
+function getRedis(): RedisCache {
+  if (!_redis) {
+    _redis = new IORedis({
+      host: process.env.REDIS_HOST ?? 'localhost',
+      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
+      password: process.env.REDIS_PASSWORD,
+      enableOfflineQueue: false,
+    });
+  }
   return _redis;
 }
 
@@ -40,18 +54,14 @@ function getRedis(): RedisCache | null {
  * Called from the signaling server when the user sends their token.
  */
 export async function storeDeviceToken(userId: string, fcmToken: string): Promise<void> {
-  const redis = getRedis();
-  if (!redis) return;
-  await redis.setex(`fcm:${userId}`, PUSH_TOKEN_TTL, fcmToken);
+  await getRedis().setex(`fcm:${userId}`, PUSH_TOKEN_TTL, fcmToken);
 }
 
 /**
  * Retrieve the stored FCM token for a user, or null if not found.
  */
 export async function getDeviceToken(userId: string): Promise<string | null> {
-  const redis = getRedis();
-  if (!redis) return null;
-  return redis.get(`fcm:${userId}`);
+  return getRedis().get(`fcm:${userId}`);
 }
 
 /**

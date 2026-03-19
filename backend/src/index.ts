@@ -8,6 +8,7 @@ import express from 'express';
 import { createSignalingServer } from './signaling/server';
 import authRouter from './routes/auth';
 import subscriptionRouter from './routes/subscription';
+import callsRouter from './routes/calls';
 import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(express.json());
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'telly-backend' }));
 app.use('/auth', authRouter);
 app.use('/subscription', subscriptionRouter);
+app.use('/calls', callsRouter);
 
 const httpServer = http.createServer(app);
 createSignalingServer(httpServer);

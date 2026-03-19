@@ -15,9 +15,18 @@ class SignalingService {
   private callAcceptedHandlers = new Map<string, CallAcceptedHandler>();
   private callEndedHandlers = new Map<string, CallEndedHandler>();
 
-  connect(userId: string, token: string): void {
+  /**
+   * Connect to the signaling server.
+   * @param userId   The authenticated user's ID
+   * @param token    JWT token for the Gatekeeper middleware
+   * @param fcmToken Optional FCM device token for background push notifications
+   */
+  connect(userId: string, token: string, fcmToken?: string): void {
+    // Avoid duplicate connections
+    if (this.socket?.connected) return;
+
     this.socket = io(SIGNALING_URL, {
-      auth: { userId, token },
+      auth: { userId, token, fcmToken },
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -33,7 +42,18 @@ class SignalingService {
 
     this.socket.on('call:ended', ({ callId }: { callId: string }) => {
       this.callEndedHandlers.get(callId)?.(callId);
+      this.callAcceptedHandlers.delete(callId);
+      this.callEndedHandlers.delete(callId);
     });
+  }
+
+  /** Disconnect from the signaling server (called on logout). */
+  disconnect(): void {
+    this.socket?.disconnect();
+    this.socket = null;
+    this.incomingCallHandlers = [];
+    this.callAcceptedHandlers.clear();
+    this.callEndedHandlers.clear();
   }
 
   initiateCall(calleeId: string): string {

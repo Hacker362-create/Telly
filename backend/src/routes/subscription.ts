@@ -6,7 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createMpesaClient, MpesaClient, PaymentCallback } from '../billing/mpesa';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -43,7 +43,7 @@ function requireSafaricomIP(req: Request, res: Response, next: NextFunction): vo
 }
 
 // POST /subscription/initiate - Start M-Pesa STK push for KES 500 subscription
-router.post('/initiate', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/initiate', apiLimiter, requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   // Use the authenticated userId from the JWT — never trust the body for identity
   const userId = req.userId as string;
   const { phoneNumber } = req.body as { phoneNumber: string };
@@ -83,12 +83,14 @@ router.post('/callback', requireSafaricomIP, async (req: Request, res: Response)
   const parsed = MpesaClient.parseCallback(callback);
 
   if (parsed.success) {
-    // Extract userId from AccountReference stored in M-Pesa metadata
+    // Extract userId from AccountReference stored in M-Pesa metadata.
+    // Validate the extracted value is a non-empty UUID-like string to
+    // prevent acting on malformed or spoofed account references.
     const accountRef = callback.Body.stkCallback.CallbackMetadata?.Item
       .find((i) => i.Name === 'AccountReference')?.Value as string | undefined;
     const userId = accountRef?.replace('TELLY-', '');
 
-    if (userId) {
+    if (userId && userId.length > 0 && userId !== accountRef) {
       const expiry = new Date();
       expiry.setMonth(expiry.getMonth() + 1);
 
@@ -117,7 +119,7 @@ router.post('/callback', requireSafaricomIP, async (req: Request, res: Response)
 
 // GET /subscription/status/:userId - Check subscription status
 // Only the owner of the account (matching JWT userId) may query their own status.
-router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { userId } = req.params;
 
   // Prevent users from querying other users' subscription status

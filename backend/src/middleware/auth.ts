@@ -1,9 +1,10 @@
 // src/middleware/auth.ts
 // JWT authentication middleware for Express routes.
-// Verifies the Bearer token issued at login and attaches userId to the request.
+// Also exports a general-purpose API rate limiter for authenticated endpoints.
 
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { rateLimit } from 'express-rate-limit';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'telly-secret-change-in-production';
 
@@ -36,3 +37,17 @@ export function requireAuth(
     res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
+
+/**
+ * General-purpose rate limiter for authenticated API endpoints.
+ * Allows 60 requests per minute per IP — enough for normal usage but
+ * prevents enumeration and abusive scraping.
+ */
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — please slow down' },
+  skip: () => process.env.NODE_ENV === 'test',
+});

@@ -40,7 +40,11 @@ class SubscriptionService {
       },
       body: JSON.stringify({ phoneNumber }),
     });
-    return response.json() as Promise<{ checkoutRequestId: string }>;
+    const data = await response.json() as { checkoutRequestId?: string; error?: string };
+    if (!response.ok) {
+      throw new Error(data.error ?? 'Payment initiation failed');
+    }
+    return data as { checkoutRequestId: string };
   }
 }
 

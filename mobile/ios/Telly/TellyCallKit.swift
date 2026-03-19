@@ -47,12 +47,12 @@ class TellyCallKit: NSObject {
     }
 
     // Start an outgoing call
-    func startOutgoingCall(callId: String, handle: String) {
+    func startOutgoingCall(callId: String, handle remoteHandle: String) {
         let uuid = UUID()
         activeCalls[uuid] = callId
 
-        let handle = CXHandle(type: .generic, value: handle)
-        let action = CXStartCallAction(call: uuid, handle: handle)
+        let cxHandle = CXHandle(type: .generic, value: remoteHandle)
+        let action = CXStartCallAction(call: uuid, handle: cxHandle)
         action.isVideo = false
 
         let transaction = CXTransaction(action: action)
