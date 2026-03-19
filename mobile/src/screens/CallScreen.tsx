@@ -18,8 +18,8 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [duration, setDuration] = useState(0);
-  const [status, setStatus] = useState<'ringing' | 'connected' | 'ended'>(
-    incoming ? 'ringing' : 'ringing',
+  const [status, setStatus] = useState<'ringing' | 'dialing' | 'connected' | 'ended'>(
+    incoming ? 'ringing' : 'dialing',
   );
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
       </View>
       <Text style={styles.userId}>{remoteUserId}</Text>
       <Text style={styles.status}>
-        {status === 'ringing' ? '🔔 Ringing...' : status === 'connected' ? formatDuration(duration) : '📵 Call Ended'}
+        {status === 'ringing' ? '🔔 Ringing...' : status === 'dialing' ? '📡 Dialing...' : status === 'connected' ? formatDuration(duration) : '📵 Call Ended'}
       </Text>
       <Text style={styles.dataLabel}>Ultra-low data usage active</Text>
 

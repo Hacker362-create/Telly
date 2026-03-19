@@ -42,14 +42,17 @@ public class TellyCallManager {
     }
 
     public void onCallAnswered(String address) {
-        // Notify React Native layer via event emitter
+        // TODO: Emit 'callAnswered' event to React Native via RCTDeviceEventEmitter
+        // when the full React Native bridge module is implemented.
     }
 
     public void onCallRejected(String address) {
-        // Notify React Native layer via event emitter
+        // TODO: Emit 'callRejected' event to React Native via RCTDeviceEventEmitter
+        // when the full React Native bridge module is implemented.
     }
 
     public void onCallEnded(String address) {
-        // Notify React Native layer via event emitter
+        // TODO: Emit 'callEnded' event to React Native via RCTDeviceEventEmitter
+        // when the full React Native bridge module is implemented.
     }
 }

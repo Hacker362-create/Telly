@@ -79,3 +79,20 @@ describe('MpesaClient constructor', () => {
     expect(client).toBeInstanceOf(MpesaClient);
   });
 });
+
+describe('MpesaClient.initiateSTKPush', () => {
+  it('throws when MPESA_CALLBACK_URL is not set', async () => {
+    const original = process.env.MPESA_CALLBACK_URL;
+    delete process.env.MPESA_CALLBACK_URL;
+
+    const client = new MpesaClient(testConfig);
+    await expect(
+      client.initiateSTKPush(
+        { phoneNumber: '254712345678', amount: 500, accountReference: 'TELLY-u1', transactionDesc: 'Test' },
+        'idem-key',
+      ),
+    ).rejects.toThrow('MPESA_CALLBACK_URL environment variable is not configured');
+
+    process.env.MPESA_CALLBACK_URL = original;
+  });
+});

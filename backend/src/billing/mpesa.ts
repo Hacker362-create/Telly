@@ -92,6 +92,11 @@ export class MpesaClient {
     request: STKPushRequest,
     idempotencyKey: string,
   ): Promise<STKPushResponse> {
+    const callbackUrl = process.env.MPESA_CALLBACK_URL;
+    if (!callbackUrl) {
+      throw new Error('MPESA_CALLBACK_URL environment variable is not configured');
+    }
+
     const token = await this.getAccessToken();
     const timestamp = this.getTimestamp();
     const password = this.getPassword(timestamp);
@@ -107,7 +112,7 @@ export class MpesaClient {
         PartyA: request.phoneNumber,
         PartyB: this.config.shortCode,
         PhoneNumber: request.phoneNumber,
-        CallBackURL: process.env.MPESA_CALLBACK_URL,
+        CallBackURL: callbackUrl,
         AccountReference: request.accountReference,
         TransactionDesc: request.transactionDesc,
       },

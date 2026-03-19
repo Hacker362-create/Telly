@@ -21,6 +21,9 @@ class SubscriptionService {
 
   async initiatePayment(phoneNumber: string): Promise<{ checkoutRequestId: string }> {
     const userId = await AsyncStorage.getItem('userId');
+    if (!userId) {
+      throw new Error('User not logged in');
+    }
     const response = await fetch(`${API_URL}/subscription/initiate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

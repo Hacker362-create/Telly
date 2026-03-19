@@ -1,5 +1,8 @@
 # telly-redis-deployment.yaml
-# Redis cluster for session state, subscription caching, and idempotency keys.
+# Redis for session state, subscription caching, and idempotency keys.
+# NOTE: This single-replica config is for development/staging.
+# For production, replace with a Redis Sentinel or Redis Cluster (3+ nodes)
+# setup to eliminate this single point of failure.
 
 apiVersion: apps/v1
 kind: Deployment

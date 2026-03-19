@@ -67,7 +67,8 @@ export async function gatekeeperMiddleware(
       select: { isActive: true, subscriptionExpiry: true },
     });
 
-    if (!user?.isActive || user.subscriptionExpiry < new Date()) {
+    const now = new Date();
+    if (!user?.isActive || user.subscriptionExpiry < now) {
       return next(new Error('TELLY_LINE_INACTIVE'));
     }
 
