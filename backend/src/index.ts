@@ -33,6 +33,19 @@ const httpServer = http.createServer(app);
 createSignalingServer(httpServer);
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
+
+httpServer.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `\n✗ Port ${PORT} is already in use by another process.\n` +
+      `  → Stop that process or set a different port: PORT=${PORT + 1} npm run dev\n`,
+    );
+  } else {
+    console.error('\n✗ Server failed to start:', err.message);
+  }
+  process.exit(1);
+});
+
 httpServer.listen(PORT, () => {
   console.log(`Telly backend listening on port ${PORT}`);
 

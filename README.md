@@ -37,8 +37,17 @@ cd backend
 cp .env.example .env        # SQLite by default — no changes needed
 npm install
 npm run db:setup            # applies migrations, creates dev.db
-npm run dev                 # starts on http://localhost:3000
+npm start                   # starts on http://localhost:3000
 ```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| **ERR_CONNECTION_REFUSED** | The server isn't running yet — run `./start.sh` (or `start.bat` on Windows) from the repo root |
+| **Port 3000 is already in use** | Stop the other process, or run `PORT=3001 npm start` inside `backend/` |
+| **`npm install` fails** | Check you have internet access; on Windows make sure [Node.js LTS](https://nodejs.org) is installed |
+| **Database errors on first run** | Delete `backend/dev.db` and re-run `npm run db:setup` |
 
 > **Docker (backend + Redis + Prometheus + Grafana):**
 > ```bash

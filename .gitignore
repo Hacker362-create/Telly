@@ -42,3 +42,4 @@ npm-debug.log*
 *.pyc
 venv/
 .venv/
+backend/.env.test
