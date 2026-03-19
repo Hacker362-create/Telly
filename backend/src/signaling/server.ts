@@ -8,6 +8,12 @@ import * as http from 'http';
 import { PrismaClient } from '@prisma/client';
 import { gatekeeperMiddleware } from './Gatekeeper';
 import { sendIncomingCallPush, storeDeviceToken } from '../notifications/push';
+import {
+  activeCallsGauge,
+  callsStartedCounter,
+  callsEndedCounter,
+  callDurationHistogram,
+} from '../metrics/registry';
 
 const prisma = new PrismaClient();
 
@@ -61,6 +67,8 @@ export function createSignalingServer(httpServer: http.Server): Server {
       };
       activeCalls.set(callId, session);
       socket.join(roomId);
+      activeCallsGauge.inc();
+      callsStartedCounter.inc();
 
       // Persist call record so we can log duration/data when it ends
       prisma.callLog.create({
@@ -128,6 +136,9 @@ export function createSignalingServer(httpServer: http.Server): Server {
 
       io.to(session.roomId).emit('call:ended', { callId, durationMs });
       activeCalls.delete(callId);
+      activeCallsGauge.dec();
+      callsEndedCounter.inc();
+      callDurationHistogram.observe(durationMs);
 
       prisma.callLog.updateMany({
         where: { callerId: session.callerId, calleeId: session.calleeId, endedAt: null },

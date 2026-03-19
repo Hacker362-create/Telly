@@ -37,13 +37,15 @@ model Transaction {
 }
 
 model CallLog {
-  id         String    @id @default(uuid())
-  callerId   String
-  calleeId   String
-  startedAt  DateTime  @default(now())
-  endedAt    DateTime?
-  durationMs Int?
-  dataBytes  Int?
-  caller     User      @relation("caller", fields: [callerId], references: [id])
-  callee     User      @relation("callee", fields: [calleeId], references: [id])
+  id              String    @id @default(uuid())
+  callerId        String
+  calleeId        String
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  durationMs      Int?
+  dataBytes       Int?
+  recordingUrl    String?   // Blob/S3 URL for the call recording (if enabled)
+  transcription   String?   // Full transcript text (set after processing)
+  caller          User      @relation("caller", fields: [callerId], references: [id])
+  callee          User      @relation("callee", fields: [calleeId], references: [id])
 }

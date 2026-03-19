@@ -11,6 +11,8 @@ import subscriptionRouter from './routes/subscription';
 import callsRouter from './routes/calls';
 import mediaRouter from './routes/media';
 import contactsRouter from './routes/contacts';
+import roomsRouter from './routes/rooms';
+import metricsRouter from './routes/metrics';
 import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
@@ -21,7 +23,9 @@ app.use('/auth', authRouter);
 app.use('/subscription', subscriptionRouter);
 app.use('/calls', callsRouter);
 app.use('/media', mediaRouter);
+app.use('/media/rooms', roomsRouter);
 app.use('/contacts', contactsRouter);
+app.use('/metrics', metricsRouter);
 
 const httpServer = http.createServer(app);
 createSignalingServer(httpServer);
