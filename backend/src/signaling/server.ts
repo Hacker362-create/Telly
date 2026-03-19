@@ -87,6 +87,13 @@ export function createSignalingServer(httpServer: http.Server): Server {
       }).catch((err) => console.error('[Signaling] Push failed:', err));
     });
 
+    // Relay an SDP offer to the callee after call initiation
+    socket.on('call:offer', ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      io.to(`user:${session.calleeId}`).emit('call:offer', { callId, offer });
+    });
+
     // Accept an incoming call
     socket.on('call:accept', ({ callId, answer }: { callId: string; answer: RTCSessionDescriptionInit }) => {
       const session = activeCalls.get(callId);

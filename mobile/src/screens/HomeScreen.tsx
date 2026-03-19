@@ -83,6 +83,9 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
         <Text style={styles.greeting} numberOfLines={1}>
           {userName ? `Hi, ${userName.split(' ')[0]}` : 'Telly'}
         </Text>
+        <TouchableOpacity onPress={() => navigation.navigate('CallHistory')}>
+          <Text style={styles.historyIcon}>🕐</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutText}>Sign Out</Text>
         </TouchableOpacity>
@@ -131,6 +134,7 @@ const styles = StyleSheet.create({
   },
   greeting: { color: '#FFF', fontSize: 16, fontWeight: '600', flex: 1 },
   logoutText: { color: '#90CAF9', fontSize: 14 },
+  historyIcon: { fontSize: 20, marginRight: 12 },
   badge: { padding: 12, alignItems: 'center' },
   activeBadge: { backgroundColor: '#4CAF50' },
   inactiveBadge: { backgroundColor: '#FF9800' },

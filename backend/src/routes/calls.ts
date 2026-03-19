@@ -65,7 +65,8 @@ router.get('/history', apiLimiter, requireAuth, async (req: AuthRequest, res: Re
       page,
       limit,
       total,
-      pages: Math.ceil(total / limit),
+      pages: total === 0 ? 0 : Math.ceil(total / limit),
+      hasMore: page * limit < total,
     },
   });
 });

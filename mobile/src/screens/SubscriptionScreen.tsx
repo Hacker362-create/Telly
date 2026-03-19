@@ -5,7 +5,7 @@
 // Polls the subscription status every 5 seconds after payment initiation
 // to detect when the payment completes.
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,

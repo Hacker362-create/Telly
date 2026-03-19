@@ -90,7 +90,7 @@ router.post('/callback', requireSafaricomIP, async (req: Request, res: Response)
       .find((i) => i.Name === 'AccountReference')?.Value as string | undefined;
     const userId = accountRef?.replace('TELLY-', '');
 
-    if (userId && userId.length > 0 && userId !== accountRef) {
+    if (userId && userId.length > 0 && accountRef?.startsWith('TELLY-')) {
       const expiry = new Date();
       expiry.setMonth(expiry.getMonth() + 1);
 

@@ -12,6 +12,7 @@ import RegisterScreen from './screens/RegisterScreen';
 import HomeScreen from './screens/HomeScreen';
 import CallScreen from './screens/CallScreen';
 import SubscriptionScreen from './screens/SubscriptionScreen';
+import CallHistoryScreen from './screens/CallHistoryScreen';
 import { signalingService } from './services/SignalingService';
 
 export type RootStackParamList = {
@@ -20,6 +21,7 @@ export type RootStackParamList = {
   Home: undefined;
   Call: { callId: string; remoteUserId: string; incoming: boolean };
   Subscription: undefined;
+  CallHistory: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -73,6 +75,11 @@ export default function App(): React.JSX.Element {
           name="Subscription"
           component={SubscriptionScreen}
           options={{ title: 'Subscribe', headerStyle: { backgroundColor: '#1A237E' }, headerTintColor: '#FFF' }}
+        />
+        <Stack.Screen
+          name="CallHistory"
+          component={CallHistoryScreen}
+          options={{ title: 'Recent Calls', headerStyle: { backgroundColor: '#1A237E' }, headerTintColor: '#FFF' }}
         />
       </Stack.Navigator>
     </NavigationContainer>
