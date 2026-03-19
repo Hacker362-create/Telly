@@ -1,21 +1,55 @@
 // src/routes/subscription.ts
 // REST endpoints for subscription management: initiate payment, handle M-Pesa callback,
 // and query subscription status.
+// Subscription status and initiation require a valid JWT token.
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createMpesaClient, MpesaClient, PaymentCallback } from '../billing/mpesa';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 const mpesa = createMpesaClient();
 
-// POST /subscription/initiate - Start M-Pesa STK push for KES 500 subscription
-router.post('/initiate', async (req: Request, res: Response): Promise<void> => {
-  const { userId, phoneNumber } = req.body as { userId: string; phoneNumber: string };
+/**
+ * Safaricom publishes the IP ranges their callback servers use.
+ * We whitelist these to reject forged payment confirmations.
+ * Set MPESA_CALLBACK_IPS env var to override (comma-separated CIDR or IPs).
+ * In development (MPESA_CALLBACK_BYPASS=true) the check is skipped.
+ */
+const SAFARICOM_IPS = (
+  process.env.MPESA_CALLBACK_IPS ??
+  '196.201.214.200,196.201.214.206,196.201.213.114,196.201.214.207,196.201.214.208,175.41.238.173,196.201.213.100,196.201.213.151'
+).split(',').map((ip) => ip.trim());
 
-  if (!userId || !phoneNumber) {
-    res.status(400).json({ error: 'userId and phoneNumber are required' });
+function requireSafaricomIP(req: Request, res: Response, next: NextFunction): void {
+  // Allow bypass in development / sandbox mode
+  if (process.env.MPESA_CALLBACK_BYPASS === 'true') {
+    return next();
+  }
+
+  // Respect X-Forwarded-For if running behind a trusted proxy (e.g. AWS ALB)
+  const forwarded = req.headers['x-forwarded-for'];
+  const remoteIp = (typeof forwarded === 'string' ? forwarded.split(',')[0] : null)
+    ?? req.socket.remoteAddress
+    ?? '';
+
+  if (!SAFARICOM_IPS.includes(remoteIp)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  next();
+}
+
+// POST /subscription/initiate - Start M-Pesa STK push for KES 500 subscription
+router.post('/initiate', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  // Use the authenticated userId from the JWT — never trust the body for identity
+  const userId = req.userId as string;
+  const { phoneNumber } = req.body as { phoneNumber: string };
+
+  if (!phoneNumber) {
+    res.status(400).json({ error: 'phoneNumber is required' });
     return;
   }
 
@@ -43,7 +77,8 @@ router.post('/initiate', async (req: Request, res: Response): Promise<void> => {
 });
 
 // POST /subscription/callback - M-Pesa payment result webhook
-router.post('/callback', async (req: Request, res: Response): Promise<void> => {
+// Protected by IP whitelist — only Safaricom's callback servers may call this.
+router.post('/callback', requireSafaricomIP, async (req: Request, res: Response): Promise<void> => {
   const callback = req.body as PaymentCallback;
   const parsed = MpesaClient.parseCallback(callback);
 
@@ -81,8 +116,15 @@ router.post('/callback', async (req: Request, res: Response): Promise<void> => {
 });
 
 // GET /subscription/status/:userId - Check subscription status
-router.get('/status/:userId', async (req: Request, res: Response): Promise<void> => {
+// Only the owner of the account (matching JWT userId) may query their own status.
+router.get('/status/:userId', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { userId } = req.params;
+
+  // Prevent users from querying other users' subscription status
+  if (req.userId !== userId) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
