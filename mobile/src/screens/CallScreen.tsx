@@ -32,12 +32,14 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
       setTimeout(() => navigation.goBack(), 1500);
     });
 
-    let timer: ReturnType<typeof setInterval>;
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (status === 'connected') {
       timer = setInterval(() => setDuration((d) => d + 1), 1000);
     }
 
-    return () => clearInterval(timer);
+    return () => {
+      if (timer !== undefined) clearInterval(timer);
+    };
   }, [callId, incoming, navigation, status]);
 
   const formatDuration = (seconds: number): string => {

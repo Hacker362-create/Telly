@@ -38,7 +38,7 @@ class SignalingService {
 
   initiateCall(calleeId: string): string {
     const callId = `call_${Date.now()}`;
-    this.socket?.emit('call:initiate', { calleeId, offer: {} });
+    this.socket?.emit('call:initiate', { calleeId, callId, offer: {} });
     return callId;
   }
 

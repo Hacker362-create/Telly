@@ -4,27 +4,32 @@
 
 import type { Socket } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
-import { Redis as IORedis } from 'ioredis';
+import IORedis from 'ioredis';
 
 const prisma = new PrismaClient();
 
-// Allow injection of a custom Redis client for testing
-let redisClient: IORedis | null = null;
+interface RedisCache {
+  get(key: string): Promise<string | null>;
+  setex(key: string, ttl: number, value: string): Promise<unknown>;
+}
 
-export function setRedisClient(client: IORedis): void {
+// Allow injection of a custom Redis client for testing
+let redisClient: RedisCache | null = null;
+
+export function setRedisClient(client: RedisCache): void {
   redisClient = client;
 }
 
-export function getRedisClient(): IORedis {
+export function getRedisClient(): RedisCache {
   if (!redisClient) {
-    redisClient = new (require('ioredis'))({
+    redisClient = new IORedis({
       host: process.env.REDIS_HOST ?? 'localhost',
       port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
       password: process.env.REDIS_PASSWORD,
       enableOfflineQueue: false,
     });
   }
-  return redisClient as IORedis;
+  return redisClient;
 }
 
 export interface AuthPayload {
@@ -51,7 +56,7 @@ export async function gatekeeperMiddleware(
     // Check Redis cache first to reduce DB load
     const redis = getRedisClient();
     const cacheKey = `subscription:${userId}`;
-    const cached = await (redis as unknown as { get(key: string): Promise<string | null> }).get(cacheKey);
+    const cached = await redis.get(cacheKey);
 
     if (cached === 'active') {
       return next();
@@ -67,7 +72,7 @@ export async function gatekeeperMiddleware(
     }
 
     // Cache active status for 60 seconds to reduce DB load
-    await (redis as unknown as { setex(key: string, ttl: number, value: string): Promise<unknown> }).setex(cacheKey, 60, 'active');
+    await redis.setex(cacheKey, 60, 'active');
     next();
   } catch (err) {
     next(new Error('TELLY_INTERNAL_ERROR'));

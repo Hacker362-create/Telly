@@ -16,7 +16,7 @@ jest.mock('@prisma/client', () => {
 const mockGet = jest.fn();
 const mockSetex = jest.fn();
 const mockRedis = { get: mockGet, setex: mockSetex };
-setRedisClient(mockRedis as unknown as import('ioredis').Redis);
+setRedisClient(mockRedis);
 
 const { __mockFindUnique } = jest.requireMock('@prisma/client') as {
   __mockFindUnique: jest.Mock;
