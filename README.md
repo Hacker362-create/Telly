@@ -1,5 +1,10 @@
 # Telly – Subscription-Based VoIP Calling Platform
 
+> ## 🌐 Your app runs at → **[http://localhost:3000](http://localhost:3000)**
+> Run `./start.sh` first (details below), then open that URL.
+
+![Telly login screen](docs/ui-screenshot.png)
+
 Telly is a subscription-based VoIP calling platform built for East African markets. It delivers ultra-low-bandwidth voice calls (~7 MB/hour vs WhatsApp's ~20 MB+) using Opus DTX/FEC compression, integrated M-Pesa billing (KES 500/month), and a Swahili/Sheng-speaking AI assistant.
 
 ---
@@ -118,7 +123,7 @@ cd backend
 cp .env.example .env   # SQLite is the default — works with zero config
 npm install
 npm run db:setup       # applies migrations non-interactively, creates dev.db
-npm run dev            # http://localhost:3000  ← open this in your browser
+npm run dev            # http://localhost:3000  ← open this in your browser (alias: npm start)
 npm test               # run Jest tests
 ```
 

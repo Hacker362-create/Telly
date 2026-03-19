@@ -4,13 +4,16 @@ REM start.bat — One-shot local development launcher for Telly VoIP (Windows)
 REM
 REM Usage: double-click start.bat  OR  run from Command Prompt / PowerShell
 REM
-REM Then open http://localhost:3000 in your browser.
+REM The script starts the server and then automatically opens
+REM http://localhost:3000 in your default browser.
 REM ─────────────────────────────────────────────────────────────────
 
 echo.
 echo  ==========================================
 echo       ^|  Telly VoIP  ^|
 echo  ==========================================
+echo.
+echo   Your app will be at --^>  http://localhost:3000
 echo.
 
 REM ── Guard: Node.js required ───────────────────────────────────
@@ -56,12 +59,17 @@ if %ERRORLEVEL% NEQ 0 (
 )
 echo   . Database ready
 
-REM ── 4. Start server ───────────────────────────────────────────
+REM ── 4. Open browser once server is ready (background) ─────────
+start "" /b cmd /c "timeout /t 5 /nobreak >nul && start http://localhost:3000"
+
+REM ── 5. Start server ───────────────────────────────────────────
 echo.
 echo ^> Starting Telly backend ...
 echo.
-echo   Open your browser:
-echo   --^>  http://localhost:3000
+echo   =============================================
+echo    Your app --^>  http://localhost:3000
+echo    Opening in your browser automatically ...
+echo   =============================================
 echo.
 echo   Press Ctrl+C to stop.
 echo.

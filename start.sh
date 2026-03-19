@@ -5,7 +5,8 @@
 # Usage:
 #   ./start.sh
 #
-# Then open http://localhost:3000 in your browser.
+# The script starts the server and then automatically opens
+# http://localhost:3000 in your default browser.
 # ─────────────────────────────────────────────────────────────────
 
 BACKEND_DIR="$(cd "$(dirname "$0")/backend" && pwd)"
@@ -15,6 +16,8 @@ echo ""
 echo "╔═══════════════════════════════════════╗"
 echo "║        📡  Telly VoIP  📡             ║"
 echo "╚═══════════════════════════════════════╝"
+echo ""
+echo "  Your app will be at → http://localhost:${PORT}"
 echo ""
 
 # ── Guard: Node.js required ────────────────────────────────────
@@ -67,12 +70,28 @@ fi
 echo ""
 echo "▶ Starting Telly backend ..."
 echo ""
-echo "  ┌─────────────────────────────────────────┐"
-echo "  │  Open your browser:                     │"
-echo "  │  ➜  http://localhost:${PORT}               │"
-echo "  └─────────────────────────────────────────┘"
+echo "  ╔═════════════════════════════════════════╗"
+echo "  ║  🌐  http://localhost:${PORT}               ║"
+echo "  ║  Open that URL in your browser          ║"
+echo "  ╚═════════════════════════════════════════╝"
 echo ""
 echo "  Press Ctrl+C to stop."
 echo ""
+
+# Try to open the browser once the server is ready (background poll)
+(
+  for i in $(seq 1 30); do
+    sleep 1
+    if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+      URL="http://localhost:${PORT}"
+      # macOS
+      if command -v open >/dev/null 2>&1; then open "$URL"
+      # Linux (XDG / GNOME / KDE)
+      elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
+      fi
+      break
+    fi
+  done
+) &
 
 cd "$BACKEND_DIR" && PORT="$PORT" npm start
