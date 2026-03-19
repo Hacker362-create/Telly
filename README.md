@@ -4,17 +4,21 @@ Telly is a subscription-based VoIP calling platform built for East African marke
 
 ---
 
-## 🚀 Run It Now (3 commands)
+## 🚀 Run It Now — One Command
 
 No database server needed — the backend uses SQLite out of the box.
 
+**macOS / Linux:**
 ```bash
-cd backend
-cp .env.example .env        # uses SQLite by default — no changes needed
-npm install
-npm run db:migrate          # creates backend/dev.db (SQLite)
-npm run dev                 # starts on http://localhost:3000
+./start.sh
 ```
+
+**Windows:**
+```
+start.bat
+```
+
+That's it. The script auto-creates `.env`, installs dependencies, sets up the database, and starts the server.
 
 **Then open your browser → [http://localhost:3000](http://localhost:3000)**
 
@@ -26,11 +30,21 @@ You'll see the Telly web UI where you can:
 - **Create / delete Mediasoup SFU rooms**
 - **Browse live Prometheus metrics**
 
-> Alternatively, run everything (backend + Redis + Prometheus + Grafana) with Docker:
+### Manual steps (if you prefer)
+
+```bash
+cd backend
+cp .env.example .env        # SQLite by default — no changes needed
+npm install
+npm run db:setup            # applies migrations, creates dev.db
+npm run dev                 # starts on http://localhost:3000
+```
+
+> **Docker (backend + Redis + Prometheus + Grafana):**
 > ```bash
 > cd infra && docker compose up --build
-> # Web UI → http://localhost:3000
-> # Grafana → http://localhost:3001  (admin / telly_grafana_dev)
+> # Web UI    → http://localhost:3000
+> # Grafana   → http://localhost:3001  (admin / telly_grafana_dev)
 > # Prometheus → http://localhost:9090
 > ```
 
@@ -94,7 +108,7 @@ Telly/
 cd backend
 cp .env.example .env   # SQLite is the default — works with zero config
 npm install
-npm run db:migrate     # creates dev.db
+npm run db:setup       # applies migrations non-interactively, creates dev.db
 npm run dev            # http://localhost:3000  ← open this in your browser
 npm test               # run Jest tests
 ```

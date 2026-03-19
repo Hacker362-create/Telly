@@ -10,7 +10,9 @@
     "test": "jest --forceExit",
     "lint": "eslint src --ext .ts",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push --accept-data-loss",
+    "db:setup": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

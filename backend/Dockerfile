@@ -11,4 +11,5 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY prisma ./prisma
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+# Run DB migration then start (non-interactive — uses migrate deploy)
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

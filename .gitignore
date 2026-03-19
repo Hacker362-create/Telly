@@ -30,8 +30,9 @@ Thumbs.db
 coverage/
 .nyc_output/
 
-# Prisma
-prisma/migrations/
+# Prisma — keep migrations, ignore generated client and local databases
+# prisma/migrations/  ← intentionally NOT ignored; migrations must be committed
+prisma/migrations/dev.db
 
 # Logs
 *.log
