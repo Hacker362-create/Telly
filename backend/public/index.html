@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Telly VoIP</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
+    --blue:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922;--purple:#bc8cff;
+  }
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+  /* ---- NAV ---- */
+  nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:24px;height:56px;position:sticky;top:0;z-index:100}
+  .logo{font-size:18px;font-weight:700;color:var(--blue);display:flex;align-items:center;gap:8px}
+  .nav-links{display:flex;gap:4px;flex:1}
+  .nav-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:14px;transition:.15s}
+  .nav-btn:hover,.nav-btn.active{background:rgba(88,166,255,.1);color:var(--blue)}
+  #nav-user{margin-left:auto;font-size:13px;color:var(--muted)}
+  #btn-logout{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;padding:4px 10px;border-radius:6px;font-size:12px;display:none}
+  #btn-logout:hover{border-color:var(--red);color:var(--red)}
+  /* ---- LAYOUT ---- */
+  main{max-width:960px;margin:0 auto;padding:32px 16px}
+  .page{display:none}
+  .page.active{display:block}
+  /* ---- CARDS ---- */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px}
+  .card-title{font-size:16px;font-weight:600;margin-bottom:16px;color:var(--text)}
+  /* ---- FORMS ---- */
+  .form-row{margin-bottom:12px}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  input[type=text],input[type=email],input[type=password],input[type=tel]{
+    width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+    padding:8px 12px;border-radius:6px;font-size:14px;outline:none;transition:.15s}
+  input:focus{border-color:var(--blue)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:14px;font-weight:500;transition:.15s}
+  .btn-primary{background:var(--blue);color:#0d1117}
+  .btn-primary:hover{filter:brightness(1.1)}
+  .btn-secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
+  .btn-secondary:hover{border-color:var(--blue);color:var(--blue)}
+  .btn-danger{background:transparent;border:1px solid var(--border);color:var(--red)}
+  .btn-danger:hover{background:var(--red);color:#fff}
+  .btn-sm{padding:4px 10px;font-size:12px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  /* ---- ALERTS ---- */
+  .alert{padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:12px;display:none}
+  .alert-err{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:var(--red)}
+  .alert-ok{background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);color:var(--green)}
+  /* ---- TABS ---- */
+  .tabs{display:flex;gap:4px;margin-bottom:16px}
+  .tab{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 14px;border-radius:6px;font-size:13px}
+  .tab.active{background:rgba(88,166,255,.15);color:var(--blue)}
+  /* ---- CONTACT LIST ---- */
+  .contact-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .contact-item:last-child{border:none}
+  .avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#0d1117;flex-shrink:0}
+  .contact-info{flex:1}
+  .contact-name{font-size:14px;font-weight:500}
+  .contact-phone{font-size:12px;color:var(--muted)}
+  /* ---- CALL LOG ---- */
+  .call-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+  .call-item:last-child{border:none}
+  .call-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+  .call-icon.out{background:rgba(88,166,255,.15)}
+  .call-icon.in{background:rgba(63,185,80,.15)}
+  .call-details{flex:1}
+  .call-peer{font-size:14px;font-weight:500}
+  .call-meta{font-size:12px;color:var(--muted)}
+  .call-duration{font-size:13px;color:var(--muted)}
+  /* ---- METRICS ---- */
+  .metrics-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+  .metric-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px}
+  .metric-val{font-size:28px;font-weight:700;color:var(--blue)}
+  .metric-lbl{font-size:12px;color:var(--muted);margin-top:4px}
+  /* ---- ROOM ---- */
+  .room-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:12px;font-size:13px;font-family:monospace;overflow-x:auto;max-height:260px;overflow-y:auto}
+  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+  .badge-blue{background:rgba(88,166,255,.15);color:var(--blue)}
+  .badge-green{background:rgba(63,185,80,.15);color:var(--green)}
+  .badge-red{background:rgba(248,81,73,.15);color:var(--red)}
+  /* ---- AUTH SPLIT ---- */
+  .auth-wrap{display:flex;justify-content:center;padding-top:48px}
+  .auth-card{width:100%;max-width:380px}
+  .auth-logo{text-align:center;font-size:32px;margin-bottom:8px}
+  .auth-title{text-align:center;font-size:22px;font-weight:700;margin-bottom:4px}
+  .auth-sub{text-align:center;font-size:13px;color:var(--muted);margin-bottom:24px}
+  .auth-switch{text-align:center;font-size:13px;color:var(--muted);margin-top:14px}
+  .auth-switch a{color:var(--blue);cursor:pointer;text-decoration:none}
+  /* ---- SEARCH BAR ---- */
+  .search-bar{display:flex;gap:8px;margin-bottom:16px}
+  .search-bar input{flex:1}
+  /* ---- EMPTY STATE ---- */
+  .empty{text-align:center;padding:32px;color:var(--muted);font-size:14px}
+  .empty-icon{font-size:40px;margin-bottom:8px}
+  /* ---- HERO STATS (home) ---- */
+  .hero{text-align:center;padding:40px 0 32px}
+  .hero h1{font-size:32px;font-weight:700;margin-bottom:8px}
+  .hero p{color:var(--muted);font-size:15px}
+  .stats-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px}
+  .stat-pill{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 20px;text-align:center}
+  .stat-num{font-size:22px;font-weight:700;color:var(--blue)}
+  .stat-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+  /* ---- LOADING ---- */
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* ---- CALL MODAL ---- */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200;display:none}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;text-align:center;min-width:280px}
+  .modal-icon{font-size:48px;margin-bottom:12px}
+  .modal-title{font-size:18px;font-weight:600;margin-bottom:6px}
+  .modal-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+  .modal-btns{display:flex;gap:10px;justify-content:center}
+  .pulse{animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav id="nav" style="display:none">
+  <div class="logo">📡 Telly</div>
+  <div class="nav-links">
+    <button class="nav-btn active" data-page="home">Home</button>
+    <button class="nav-btn" data-page="contacts">Contacts</button>
+    <button class="nav-btn" data-page="calls">Call History</button>
+    <button class="nav-btn" data-page="rooms">Media Rooms</button>
+    <button class="nav-btn" data-page="metrics">Metrics</button>
+  </div>
+  <span id="nav-user"></span>
+  <button id="btn-logout">Sign out</button>
+</nav>
+
+<!-- ========== AUTH PAGE ========== -->
+<div id="page-auth" class="page active">
+  <div class="auth-wrap">
+    <div class="auth-card card">
+      <div class="auth-logo">📡</div>
+      <div class="auth-title">Telly VoIP</div>
+      <div class="auth-sub" id="auth-sub">Sign in to your account</div>
+
+      <div class="alert alert-err" id="auth-err"></div>
+      <div class="alert alert-ok" id="auth-ok"></div>
+
+      <!-- LOGIN FORM -->
+      <div id="login-form">
+        <div class="form-row"><label>Email</label><input type="email" id="l-email" placeholder="you@example.com" /></div>
+        <div class="form-row"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••" /></div>
+        <button class="btn btn-primary" style="width:100%" id="btn-login">Sign in</button>
+        <div class="auth-switch">Don't have an account? <a id="goto-register">Register</a></div>
+      </div>
+
+      <!-- REGISTER FORM -->
+      <div id="register-form" style="display:none">
+        <div class="form-row"><label>Full name</label><input type="text" id="r-name" placeholder="Alice Wanjiku" /></div>
+        <div class="form-row"><label>Email</label><input type="email" id="r-email" placeholder="you@example.com" /></div>
+        <div class="form-row"><label>Phone number</label><input type="tel" id="r-phone" placeholder="+254700000000" /></div>
+        <div class="form-row"><label>Password</label><input type="password" id="r-pass" placeholder="••••••••" /></div>
+        <button class="btn btn-primary" style="width:100%" id="btn-register">Create account</button>
+        <div class="auth-switch">Already have an account? <a id="goto-login">Sign in</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== HOME ========== -->
+<div id="page-home" class="page">
+  <div class="hero">
+    <h1>Welcome back, <span id="home-name">—</span> 👋</h1>
+    <p>Telly VoIP platform — backend running, all systems go.</p>
+    <div class="stats-row" id="home-stats">
+      <div class="stat-pill"><div class="stat-num" id="s-calls">—</div><div class="stat-lbl">Calls made</div></div>
+      <div class="stat-pill"><div class="stat-num" id="s-rooms">—</div><div class="stat-lbl">Active rooms</div></div>
+      <div class="stat-pill"><div class="stat-num" id="s-contacts">—</div><div class="stat-lbl">Contacts found</div></div>
+      <div class="stat-pill"><div class="stat-num" style="color:var(--green)">✓</div><div class="stat-lbl">API healthy</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Quick call</div>
+    <div class="search-bar">
+      <input type="text" id="quick-search" placeholder="Search a contact to call…" />
+      <button class="btn btn-primary" id="btn-quick-search">Search</button>
+    </div>
+    <div id="quick-results"></div>
+  </div>
+</div>
+
+<!-- ========== CONTACTS ========== -->
+<div id="page-contacts" class="page">
+  <div class="card">
+    <div class="card-title">Find contacts</div>
+    <div class="search-bar">
+      <input type="text" id="contact-q" placeholder="Search by name or phone…" />
+      <button class="btn btn-primary" id="btn-search-contacts">Search</button>
+    </div>
+    <div class="alert alert-err" id="contacts-err"></div>
+    <div id="contacts-list"><div class="empty"><div class="empty-icon">🔍</div>Search for someone to get started</div></div>
+  </div>
+</div>
+
+<!-- ========== CALLS ========== -->
+<div id="page-calls" class="page">
+  <div class="card">
+    <div class="card-title">Call history</div>
+    <div class="alert alert-err" id="calls-err"></div>
+    <div id="calls-list"><div class="empty"><div class="empty-icon"><span class="spin"></span></div>Loading…</div></div>
+    <div id="calls-pagination" style="margin-top:12px;display:flex;gap:8px;justify-content:center"></div>
+  </div>
+</div>
+
+<!-- ========== ROOMS ========== -->
+<div id="page-rooms" class="page">
+  <div class="card">
+    <div class="card-title">Media rooms (SFU)</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Create a Mediasoup SFU room. The server returns ICE/DTLS parameters and Opus codec capabilities so a WebRTC client can connect.</p>
+    <button class="btn btn-primary" id="btn-create-room">＋ Create room</button>
+    <div class="alert alert-err" id="rooms-err" style="margin-top:12px"></div>
+    <div id="rooms-list" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- ========== METRICS ========== -->
+<div id="page-metrics" class="page">
+  <div class="card">
+    <div class="card-title">Live Prometheus metrics</div>
+    <button class="btn btn-secondary btn-sm" id="btn-refresh-metrics" style="margin-bottom:16px">↻ Refresh</button>
+    <div class="alert alert-err" id="metrics-err"></div>
+    <div class="metrics-grid" id="metrics-grid"></div>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Raw Prometheus output</summary>
+      <pre id="metrics-raw" style="font-size:11px;color:var(--muted);margin-top:8px;overflow-x:auto;max-height:300px;overflow-y:auto"></pre>
+    </details>
+  </div>
+</div>
+
+<!-- ========== CALL MODAL ========== -->
+<div class="modal-overlay" id="call-modal">
+  <div class="modal">
+    <div class="modal-icon pulse" id="call-modal-icon">📞</div>
+    <div class="modal-title" id="call-modal-title">Calling…</div>
+    <div class="modal-sub" id="call-modal-sub"></div>
+    <div class="modal-btns">
+      <button class="btn btn-danger" id="btn-end-call">End call</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+let token = localStorage.getItem('telly_token');
+let user  = JSON.parse(localStorage.getItem('telly_user') || 'null');
+let activeCallId = null;
+
+// ─────────────────────────────────────────────
+// API helper
+// ─────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+  if (body)  opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  try { return { ok: r.ok, status: r.status, data: JSON.parse(text) }; }
+  catch { return { ok: r.ok, status: r.status, data: { error: text } }; }
+}
+
+// ─────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.page === name);
+  });
+  if (name === 'calls')   loadCalls();
+  if (name === 'metrics') loadMetrics();
+}
+
+document.querySelectorAll('.nav-btn').forEach(b => {
+  b.addEventListener('click', () => showPage(b.dataset.page));
+});
+
+// ─────────────────────────────────────────────
+// Auth helpers
+// ─────────────────────────────────────────────
+function setSession(u, t) {
+  user = u; token = t;
+  localStorage.setItem('telly_token', t);
+  localStorage.setItem('telly_user', JSON.stringify(u));
+  document.getElementById('nav-user').textContent = u.name;
+  document.getElementById('btn-logout').style.display = 'inline-block';
+  document.getElementById('nav').style.display = 'flex';
+  document.getElementById('home-name').textContent = u.name.split(' ')[0];
+  showPage('home');
+  loadHomeStats();
+}
+
+function clearSession() {
+  token = null; user = null;
+  localStorage.removeItem('telly_token');
+  localStorage.removeItem('telly_user');
+  document.getElementById('nav').style.display = 'none';
+  document.getElementById('btn-logout').style.display = 'none';
+  showPage('auth');
+}
+
+document.getElementById('btn-logout').addEventListener('click', clearSession);
+
+// ─────────────────────────────────────────────
+// AUTH PAGE
+// ─────────────────────────────────────────────
+document.getElementById('goto-register').addEventListener('click', () => {
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('register-form').style.display = 'block';
+  document.getElementById('auth-sub').textContent = 'Create a new account';
+  clearAlerts('auth-err', 'auth-ok');
+});
+document.getElementById('goto-login').addEventListener('click', () => {
+  document.getElementById('register-form').style.display = 'none';
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('auth-sub').textContent = 'Sign in to your account';
+  clearAlerts('auth-err', 'auth-ok');
+});
+
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  clearAlerts('auth-err', 'auth-ok');
+  const r = await api('POST', '/auth/login', {
+    email: v('l-email'), password: v('l-pass')
+  });
+  btn.disabled = false; btn.textContent = 'Sign in';
+  if (!r.ok) { showAlert('auth-err', r.data.error || 'Login failed'); return; }
+  setSession(r.data.user, r.data.token);
+});
+
+document.getElementById('btn-register').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-register');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+  clearAlerts('auth-err', 'auth-ok');
+  const r = await api('POST', '/auth/register', {
+    name: v('r-name'), email: v('r-email'),
+    phoneNumber: v('r-phone'), password: v('r-pass')
+  });
+  btn.disabled = false; btn.textContent = 'Create account';
+  if (!r.ok) { showAlert('auth-err', r.data.error || 'Registration failed'); return; }
+  showAlert('auth-ok', 'Account created! Signing you in…');
+  setSession(r.data.user, r.data.token);
+});
+
+// enter-key on login
+['l-email','l-pass'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('btn-login').click(); });
+});
+
+// ─────────────────────────────────────────────
+// HOME
+// ─────────────────────────────────────────────
+async function loadHomeStats() {
+  // call count
+  const ch = await api('GET', '/calls/history?limit=1');
+  if (ch.ok) document.getElementById('s-calls').textContent = ch.data.pagination?.total ?? 0;
+  // metrics for rooms
+  const m = await fetch('/metrics').then(r=>r.text()).catch(()=>'');
+  const rm = m.match(/^telly_active_rooms (\d+)/m);
+  if (rm) document.getElementById('s-rooms').textContent = rm[1];
+  // contacts
+  document.getElementById('s-contacts').textContent = '∞';
+}
+
+// quick call search (home)
+document.getElementById('btn-quick-search').addEventListener('click', async () => {
+  const q = v('quick-search');
+  if (!q) return;
+  const r = await api('GET', `/contacts/search?q=${encodeURIComponent(q)}`);
+  const el = document.getElementById('quick-results');
+  if (!r.ok || !r.data.contacts?.length) {
+    el.innerHTML = '<div class="empty" style="padding:16px">No contacts found</div>'; return;
+  }
+  el.innerHTML = r.data.contacts.map(c => `
+    <div class="contact-item">
+      <div class="avatar">${c.name[0].toUpperCase()}</div>
+      <div class="contact-info"><div class="contact-name">${esc(c.name)}</div><div class="contact-phone">${esc(c.phoneNumber)}</div></div>
+      <button class="btn btn-primary btn-sm" onclick="startCall('${c.id}','${esc(c.name)}')">📞 Call</button>
+    </div>`).join('');
+});
+document.getElementById('quick-search').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('btn-quick-search').click(); });
+
+// ─────────────────────────────────────────────
+// CONTACTS
+// ─────────────────────────────────────────────
+document.getElementById('btn-search-contacts').addEventListener('click', searchContacts);
+document.getElementById('contact-q').addEventListener('keydown', e => { if(e.key==='Enter') searchContacts(); });
+
+async function searchContacts() {
+  const q = v('contact-q');
+  clearAlerts('contacts-err');
+  const r = await api('GET', `/contacts/search?q=${encodeURIComponent(q)}`);
+  const el = document.getElementById('contacts-list');
+  if (!r.ok) { showAlert('contacts-err', r.data.error || 'Search failed'); return; }
+  if (!r.data.contacts?.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div>No results for "'+esc(q)+'"</div>'; return;
+  }
+  el.innerHTML = r.data.contacts.map(c => `
+    <div class="contact-item">
+      <div class="avatar">${c.name[0].toUpperCase()}</div>
+      <div class="contact-info"><div class="contact-name">${esc(c.name)}</div><div class="contact-phone">${esc(c.phoneNumber)}</div></div>
+      <button class="btn btn-primary btn-sm" onclick="startCall('${c.id}','${esc(c.name)}')">📞 Call</button>
+    </div>`).join('');
+}
+
+// ─────────────────────────────────────────────
+// CALLS
+// ─────────────────────────────────────────────
+let callPage = 1;
+async function loadCalls(page) {
+  page = page || 1; callPage = page;
+  const el = document.getElementById('calls-list');
+  clearAlerts('calls-err');
+  el.innerHTML = '<div class="empty"><div class="empty-icon"><span class="spin"></span></div>Loading…</div>';
+  const r = await api('GET', `/calls/history?page=${page}&limit=20`);
+  if (!r.ok) { showAlert('calls-err', r.data.error || 'Failed to load calls'); el.innerHTML=''; return; }
+  const { calls, pagination } = r.data;
+  if (!calls.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📭</div>No calls yet</div>'; return; }
+  el.innerHTML = calls.map(c => {
+    const isOut = c.callerId === user?.id;
+    const peer  = isOut ? (c.callee?.name||'Unknown') : (c.caller?.name||'Unknown');
+    const dur   = c.durationMs ? fmtDur(c.durationMs) : '—';
+    const date  = new Date(c.startedAt).toLocaleString();
+    return `<div class="call-item">
+      <div class="call-icon ${isOut?'out':'in'}">${isOut?'↗':'↙'}</div>
+      <div class="call-details">
+        <div class="call-peer">${esc(peer)}</div>
+        <div class="call-meta">${date}${c.recordingUrl?' · 🎙 recorded':''}</div>
+      </div>
+      <div class="call-duration">${dur}</div>
+    </div>`;
+  }).join('');
+  // pagination
+  const pg = document.getElementById('calls-pagination');
+  pg.innerHTML = '';
+  if (pagination.pages > 1) {
+    for(let i=1;i<=pagination.pages;i++){
+      const b = document.createElement('button');
+      b.className = 'btn btn-secondary btn-sm' + (i===page?' btn-primary':'');
+      b.textContent = i;
+      b.onclick = ()=>loadCalls(i);
+      pg.appendChild(b);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// ROOMS
+// ─────────────────────────────────────────────
+const createdRooms = [];
+document.getElementById('btn-create-room').addEventListener('click', createRoom);
+
+async function createRoom() {
+  const btn = document.getElementById('btn-create-room');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  clearAlerts('rooms-err');
+  const r = await api('POST', '/media/rooms');
+  btn.disabled = false; btn.textContent = '＋ Create room';
+  if (!r.ok) { showAlert('rooms-err', r.data.error || 'Failed to create room'); return; }
+  createdRooms.unshift(r.data);
+  renderRooms();
+}
+
+function renderRooms() {
+  const el = document.getElementById('rooms-list');
+  if (!createdRooms.length) { el.innerHTML=''; return; }
+  el.innerHTML = createdRooms.map(room => `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="badge badge-green">LIVE</span>
+        <span style="font-size:13px;font-weight:600">Room</span>
+        <span style="font-size:11px;color:var(--muted);font-family:monospace">${room.roomId}</span>
+        <span style="margin-left:auto;font-size:13px;color:var(--muted)">${room.participantCount} participant(s)</span>
+        <button class="btn btn-danger btn-sm" onclick="deleteRoom('${room.roomId}')">Delete</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="badge badge-blue">${room.rtpCapabilities?.codecs?.[0]?.mimeType||'?'}</span>
+        <span class="badge badge-blue">ICE ✓</span>
+        <span class="badge badge-blue">DTLS ✓</span>
+      </div>
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Transport details</summary>
+        <div class="room-box">${esc(JSON.stringify(room.transport, null, 2))}</div>
+      </details>
+    </div>`).join('');
+}
+
+async function deleteRoom(roomId) {
+  const r = await api('DELETE', '/media/rooms/' + roomId);
+  if (!r.ok && r.status !== 204) { showAlert('rooms-err', 'Delete failed'); return; }
+  const idx = createdRooms.findIndex(r => r.roomId === roomId);
+  if (idx !== -1) createdRooms.splice(idx, 1);
+  renderRooms();
+}
+
+// ─────────────────────────────────────────────
+// METRICS
+// ─────────────────────────────────────────────
+async function loadMetrics() {
+  clearAlerts('metrics-err');
+  const raw = await fetch('/metrics').then(r=>r.text()).catch(()=>'');
+  if (!raw) { showAlert('metrics-err', 'Could not load metrics'); return; }
+  document.getElementById('metrics-raw').textContent = raw;
+  // parse telly_ lines
+  const lines = raw.split('\n').filter(l => l.startsWith('telly_') && !l.startsWith('telly_node') && !l.startsWith('#'));
+  const grid = document.getElementById('metrics-grid');
+  const nice = {
+    telly_active_calls: ['Active calls','📞'],
+    telly_calls_started_total: ['Calls started','↗'],
+    telly_calls_ended_total: ['Calls ended','✓'],
+    telly_active_rooms: ['Active rooms','🏠'],
+    telly_active_transports: ['Active transports','🔗'],
+    telly_transports_created_total: ['Transports created','🔗'],
+    telly_logins_total: ['Logins','👤'],
+    telly_login_failures_total: ['Login failures','⚠'],
+    telly_call_duration_ms_count: ['Call count (dur)','⏱'],
+  };
+  const seen = {};
+  const cards = [];
+  lines.forEach(l => {
+    const m = l.match(/^([a-z_]+)(?:\{[^}]*\})?\s+([0-9.]+)/);
+    if (!m || seen[m[1]]) return;
+    seen[m[1]] = true;
+    const info = nice[m[1]] || [m[1].replace('telly_','').replace(/_/g,' '), '📊'];
+    cards.push(`<div class="metric-card"><div class="metric-val">${m[2]}</div><div class="metric-lbl">${info[0]}</div></div>`);
+  });
+  grid.innerHTML = cards.join('') || '<div style="color:var(--muted);font-size:13px">No telly_ metrics found</div>';
+}
+document.getElementById('btn-refresh-metrics').addEventListener('click', loadMetrics);
+
+// ─────────────────────────────────────────────
+// CALL MODAL
+// ─────────────────────────────────────────────
+function startCall(calleeId, name) {
+  document.getElementById('call-modal-title').textContent = 'Calling ' + name + '…';
+  document.getElementById('call-modal-sub').textContent = 'Ringing • Telly VoIP';
+  document.getElementById('call-modal-icon').textContent = '📞';
+  document.getElementById('call-modal').style.display = 'flex';
+  // simulate signaling — in production this fires through Socket.io
+  activeCallId = 'demo-' + Date.now();
+  // auto-dismiss after 30s
+  setTimeout(() => endCall(), 30000);
+}
+
+function endCall() {
+  document.getElementById('call-modal').style.display = 'none';
+  activeCallId = null;
+}
+document.getElementById('btn-end-call').addEventListener('click', endCall);
+
+// ─────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────
+function v(id) { return document.getElementById(id).value.trim(); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function showAlert(id, msg) { const el=document.getElementById(id); el.textContent=msg; el.style.display='block'; }
+function clearAlerts(...ids) { ids.forEach(id=>{const el=document.getElementById(id);if(el){el.textContent='';el.style.display='none';}}); }
+function fmtDur(ms) { const s=Math.round(ms/1000); return s<60?s+'s':Math.floor(s/60)+'m '+s%60+'s'; }
+
+// ─────────────────────────────────────────────
+// Bootstrap
+// ─────────────────────────────────────────────
+if (token && user) {
+  setSession(user, token);
+} else {
+  document.getElementById('page-auth').classList.add('active');
+}
+</script>
+</body>
+</html>

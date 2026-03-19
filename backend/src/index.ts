@@ -3,6 +3,7 @@
 // Starts the Express HTTP server, Socket.io signaling, and Mediasoup SFU.
 
 import 'dotenv/config';
+import * as path from 'path';
 import * as http from 'http';
 import express from 'express';
 import { createSignalingServer } from './signaling/server';
@@ -17,6 +18,7 @@ import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'telly-backend' }));
 app.use('/auth', authRouter);
