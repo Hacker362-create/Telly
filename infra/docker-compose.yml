@@ -1,25 +1,12 @@
 # docker-compose.yml
 # Local development environment for Telly backend services.
+# The backend uses SQLite (no external database required).
+# Run: docker compose up --build
+# Then open: http://localhost:3000
 
 version: '3.9'
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: telly
-      POSTGRES_USER: telly
-      POSTGRES_PASSWORD: telly_dev_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U telly"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     ports:
@@ -38,20 +25,28 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://telly:telly_dev_password@postgres:5432/telly
+      DATABASE_URL: file:/app/data/dev.db
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: dev-jwt-secret-change-in-prod
       MPESA_BASE_URL: https://sandbox.safaricom.co.ke
+      MPESA_CONSUMER_KEY: dummy
+      MPESA_CONSUMER_SECRET: dummy
+      MPESA_SHORT_CODE: "174379"
+      MPESA_PASS_KEY: dummy
+      MPESA_CALLBACK_URL: http://localhost:3000/subscription/callback
+      FCM_SERVER_KEY: dummy
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      MEDIASOUP_LISTEN_IP: "0.0.0.0"
+      MEDIASOUP_ANNOUNCED_IP: "127.0.0.1"
+      MEDIASOUP_RTC_MIN_PORT: "2000"
+      MEDIASOUP_RTC_MAX_PORT: "2999"
       PORT: 3000
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ../backend:/app
-      - /app/node_modules
+      - backend_data:/app/data
 
   bot:
     build:
@@ -87,5 +82,5 @@ services:
       - prometheus
 
 volumes:
-  postgres_data:
+  backend_data:
   grafana_data:
