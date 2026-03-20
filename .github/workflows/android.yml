@@ -1,0 +1,110 @@
+name: Android — Fastlane CI/CD
+
+on:
+  push:
+    branches: [main, "copilot/**"]
+    paths:
+      - "mobile/android/**"
+      - "mobile/Gemfile"
+      - ".github/workflows/android.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "mobile/android/**"
+      - "mobile/Gemfile"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "Fastlane lane to run"
+        required: true
+        default: "build_debug"
+        type: choice
+        options:
+          - test
+          - build_debug
+          - build_release
+          - deploy_firebase
+          - deploy_play_internal
+          - deploy_play_production
+
+# Only read-only permissions by default; Play/Firebase tokens come from secrets.
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android (${{ github.event.inputs.lane || 'build_debug' }})
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile/android
+
+    env:
+      LANE: ${{ github.event.inputs.lane || 'build_debug' }}
+      # Signing — add these in repo Settings → Secrets
+      MYAPP_UPLOAD_STORE_FILE:      telly-release.keystore
+      MYAPP_UPLOAD_STORE_PASSWORD:  ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      MYAPP_UPLOAD_KEY_ALIAS:       telly-key
+      MYAPP_UPLOAD_KEY_PASSWORD:    ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # Firebase App Distribution
+      FIREBASE_APP_ID_ANDROID:      ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+      FIREBASE_TOKEN:               ${{ secrets.FIREBASE_TOKEN }}
+      FIREBASE_TESTERS:             ${{ secrets.FIREBASE_TESTERS }}
+      # Google Play
+      SUPPLY_JSON_KEY_DATA:         ${{ secrets.GOOGLE_PLAY_KEY_JSON }}
+      # Build number = GitHub run number for reproducibility
+      BUILD_NUMBER:                 ${{ github.run_number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
+
+      # Restore Gradle cache for faster subsequent builds
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('mobile/android/**/*.gradle*', 'mobile/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # Decode and write the keystore from base64 secret (only for release lanes)
+      - name: Decode release keystore
+        if: ${{ env.LANE != 'test' && env.LANE != 'build_debug' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > telly-release.keystore
+
+      - name: Run Fastlane (${{ env.LANE }})
+        run: bundle exec fastlane android ${{ env.LANE }}
+        working-directory: mobile/android
+
+      # Upload APK/AAB as a workflow artifact for easy download
+      - name: Upload APK artifact
+        if: ${{ env.LANE == 'build_debug' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telly-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - name: Upload AAB artifact
+        if: ${{ env.LANE == 'build_release' || env.LANE == 'deploy_play_internal' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telly-release-aab
+          path: mobile/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn

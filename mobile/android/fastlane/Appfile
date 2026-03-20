@@ -1,0 +1,9 @@
+# fastlane/Appfile — Android
+# Values here can be overridden by environment variables at CI time.
+
+# Google Play application identifier
+package_name("com.telly")
+
+# Path to your Google Play service-account JSON key.
+# Set the SUPPLY_JSON_KEY env variable in CI instead of hardcoding a path.
+# json_key_file("../secrets/google-play-key.json")

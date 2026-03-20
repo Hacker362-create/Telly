@@ -6,7 +6,17 @@
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "fastlane:android:test": "cd android && bundle exec fastlane android test",
+    "fastlane:android:debug": "cd android && bundle exec fastlane android build_debug",
+    "fastlane:android:release": "cd android && bundle exec fastlane android build_release",
+    "fastlane:android:firebase": "cd android && bundle exec fastlane android deploy_firebase",
+    "fastlane:android:play": "cd android && bundle exec fastlane android deploy_play_internal",
+    "fastlane:ios:test": "cd ios && bundle exec fastlane ios test",
+    "fastlane:ios:debug": "cd ios && bundle exec fastlane ios build_debug",
+    "fastlane:ios:release": "cd ios && bundle exec fastlane ios build_release",
+    "fastlane:ios:firebase": "cd ios && bundle exec fastlane ios deploy_firebase",
+    "fastlane:ios:testflight": "cd ios && bundle exec fastlane ios deploy_testflight"
   },
   "dependencies": {
     "react": "18.2.0",

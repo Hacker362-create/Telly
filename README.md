@@ -108,9 +108,13 @@ Telly/
 │   ├── prisma/       # SQLite schema + migrations
 │   └── tests/        # Jest unit tests (97 passing)
 ├── mobile/           # React Native app
-│   ├── android/      # Android ConnectionService (native call UI)
-│   ├── ios/          # iOS CallKit + VoIP push
-│   └── src/          # Screens and services
+│   ├── android/      # Android ConnectionService + Fastlane
+│   │   └── fastlane/ # build_debug, build_release, deploy_firebase, deploy_play
+│   ├── ios/          # iOS CallKit + VoIP push + Fastlane
+│   │   └── fastlane/ # build_debug, build_release, deploy_firebase, deploy_testflight, deploy_appstore
+│   ├── src/          # Screens and services
+│   ├── Gemfile       # Fastlane + plugins
+│   └── FASTLANE.md   # Fastlane docs & secret setup
 ├── bot/              # Python AI assistant (Deepgram + GPT-4o + Azure TTS)
 └── infra/            # Docker Compose + Kubernetes manifests
 ```
@@ -149,6 +153,24 @@ docker compose up --build
 # Prometheus → http://localhost:9090
 ```
 
+### Mobile — Fastlane build & release
+
+```bash
+cd mobile
+bundle install           # install Fastlane + plugins (once)
+
+# Android
+npm run fastlane:android:debug     # build debug APK
+npm run fastlane:android:firebase  # distribute to Firebase testers
+npm run fastlane:android:play      # upload AAB to Play Internal track
+
+# iOS (macOS only)
+npm run fastlane:ios:debug         # simulator build
+npm run fastlane:ios:testflight    # upload IPA to TestFlight
+```
+
+See [mobile/FASTLANE.md](mobile/FASTLANE.md) for all lanes, required secrets, and CI/CD setup.
+
 ---
 
 ## Key Features
@@ -162,6 +184,7 @@ docker compose up --build
 | **Native call UI** | iOS CallKit + Android ConnectionService |
 | **AI assistant** | Swahili/Sheng via Deepgram + GPT-4o + Azure TTS |
 | **Kubernetes-ready** | Mediasoup SFU on `af-south-1` (Cape Town) |
+| **Fastlane CI/CD** | One-command Android (Play Store) + iOS (TestFlight/App Store) release |
 
 ## Environment Variables
 

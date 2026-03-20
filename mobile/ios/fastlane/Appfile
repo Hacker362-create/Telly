@@ -1,0 +1,19 @@
+# fastlane/Appfile — iOS
+# Values here are defaults; override with environment variables at CI time.
+
+# App Store Connect / Apple Developer account
+# app_identifier("com.telly")        # set via FASTLANE_APP_IDENTIFIER env var
+# apple_id("ci@example.com")        # set via FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD
+# team_id("XXXXXXXXXX")             # set via FASTLANE_TEAM_ID
+
+app_identifier(ENV["APP_IDENTIFIER"] || "com.telly")
+apple_id(ENV["APPLE_ID"] || "")
+team_id(ENV["APPLE_TEAM_ID"] || "")
+
+for_lane :deploy_appstore do
+  app_identifier("com.telly")
+end
+
+for_lane :deploy_firebase do
+  app_identifier("com.telly")
+end
