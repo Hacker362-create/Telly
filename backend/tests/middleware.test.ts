@@ -105,6 +105,9 @@ function makeMockRedis() {
     setex: jest.fn(async (key: string, _ttl: number, value: string) => {
       store.set(key, value);
     }),
+    del: jest.fn(async (key: string) => {
+      store.delete(key);
+    }),
   };
 }
 

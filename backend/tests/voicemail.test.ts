@@ -39,6 +39,11 @@ jest.mock('../src/metrics/registry', () => ({
   voicemailsLeftCounter: { inc: jest.fn() },
 }));
 
+// Mock push notifications so no Redis/FCM calls happen in route tests
+jest.mock('../src/notifications/push', () => ({
+  sendNewVoicemailPush: jest.fn().mockResolvedValue(undefined),
+}));
+
 function db() {
   return (jest.requireMock('@prisma/client') as { __voicemail: Record<string, jest.Mock> }).__voicemail;
 }

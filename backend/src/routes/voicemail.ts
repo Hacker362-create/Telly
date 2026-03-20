@@ -14,6 +14,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
 import { voicemailsLeftCounter } from '../metrics/registry';
+import { sendNewVoicemailPush } from '../notifications/push';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -109,6 +110,14 @@ router.post(
     });
 
     voicemailsLeftCounter.inc();
+
+    // Fire-and-forget push notification to the recipient's device.
+    sendNewVoicemailPush(recipientId.trim(), {
+      callerId,
+      callerName: callerId,
+      durationSec,
+    }).catch((err) => console.error('[Voicemail] Push failed:', err));
+
     res.status(201).json(voicemail);
   },
 );

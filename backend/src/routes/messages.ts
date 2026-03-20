@@ -12,6 +12,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
 import { messagesSentCounter } from '../metrics/registry';
+import { sendNewMessagePush } from '../notifications/push';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -76,6 +77,15 @@ router.post(
     });
 
     messagesSentCounter.inc();
+
+    // Fire-and-forget push notification to the recipient's device.
+    // We don't have a display name in this request; use senderId as fallback.
+    sendNewMessagePush(recipientId.trim(), {
+      senderId,
+      senderName: senderId,
+      preview: body.trim(),
+    }).catch((err) => console.error('[Messages] Push failed:', err));
+
     res.status(201).json(message);
   },
 );

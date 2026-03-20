@@ -95,4 +95,20 @@ export const loginFailuresCounter = new client.Counter({
   help: 'Total failed login attempts',
 });
 
+// ── Push notification metrics ─────────────────────────────────────────────────
+
+/** Total device push tokens registered via REST since process launch. */
+export const pushTokensRegisteredCounter = new client.Counter({
+  name: 'telly_push_tokens_registered_total',
+  help: 'Total device push tokens registered via the REST API',
+  labelNames: ['platform'],
+});
+
+/** Total push notifications successfully dispatched since process launch. */
+export const pushNotificationsSentCounter = new client.Counter({
+  name: 'telly_push_notifications_sent_total',
+  help: 'Total push notifications dispatched',
+  labelNames: ['type', 'platform'],
+});
+
 export const metricsRegistry = client.register;
