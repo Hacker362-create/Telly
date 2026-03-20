@@ -17,7 +17,13 @@ import {
   callsStartedCounter,
   callsEndedCounter,
   callDurationHistogram,
+  onlineUsersGauge,
 } from '../metrics/registry';
+import {
+  setPresence,
+  clearPresence,
+  PresenceStatus,
+} from '../presence/PresenceStore';
 
 const prisma = new PrismaClient();
 
@@ -50,12 +56,39 @@ export function createSignalingServer(httpServer: http.Server): Server {
     const { userId, fcmToken } = socket.handshake.auth as { userId: string; fcmToken?: string };
     socket.join(`user:${userId}`);
 
+    // Mark user as online and update the gauge
+    setPresence(userId, 'online').catch((err) =>
+      console.error('[Signaling] Failed to set presence:', err),
+    );
+    onlineUsersGauge.inc();
+
+    // Broadcast presence change to all connected peers (they can subscribe to
+    // 'presence:changed' to update contact-list avatars in real time)
+    io.emit('presence:changed', { userId, status: 'online' });
+
     // Persist the device push token so we can wake the device for incoming calls
     if (fcmToken) {
       storeDeviceToken(userId, fcmToken).catch((err) =>
         console.error('[Signaling] Failed to store FCM token:', err),
       );
     }
+
+    // Allow the client to update its own status (busy, away, online)
+    socket.on('presence:set', ({ status }: { status: PresenceStatus }) => {
+      const allowed: PresenceStatus[] = ['online', 'busy', 'away'];
+      if (!allowed.includes(status)) return;
+      setPresence(userId, status).catch((err) =>
+        console.error('[Signaling] Failed to update presence:', err),
+      );
+      io.emit('presence:changed', { userId, status });
+    });
+
+    // Heartbeat: refresh Redis TTL so the record doesn't expire while connected
+    socket.on('presence:heartbeat', () => {
+      setPresence(userId, 'online').catch((err) =>
+        console.error('[Signaling] Failed to refresh presence heartbeat:', err),
+      );
+    });
 
     // Initiate an outgoing call
     socket.on('call:initiate', async ({ calleeId, offer }: { calleeId: string; offer: RTCSessionDescriptionInit }) => {
@@ -152,6 +185,11 @@ export function createSignalingServer(httpServer: http.Server): Server {
 
     socket.on('disconnect', () => {
       socket.leave(`user:${userId}`);
+      clearPresence(userId).catch((err) =>
+        console.error('[Signaling] Failed to clear presence:', err),
+      );
+      onlineUsersGauge.dec();
+      io.emit('presence:changed', { userId, status: 'offline' });
     });
   });
 

@@ -57,6 +57,14 @@ export const activeRoomsGauge = new client.Gauge({
   help: 'Number of active multi-party rooms',
 });
 
+// ── Presence metrics ─────────────────────────────────────────────────────────
+
+/** Number of users currently online (presence status = online or busy). */
+export const onlineUsersGauge = new client.Gauge({
+  name: 'telly_online_users',
+  help: 'Number of users with an active presence (online or busy)',
+});
+
 // ── Auth metrics ──────────────────────────────────────────────────────────────
 
 /** Total successful logins since process launch. */
