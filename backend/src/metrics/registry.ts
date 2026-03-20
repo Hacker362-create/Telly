@@ -65,6 +65,14 @@ export const onlineUsersGauge = new client.Gauge({
   help: 'Number of users with an active presence (online or busy)',
 });
 
+// ── Messaging metrics ─────────────────────────────────────────────────────────
+
+/** Total messages sent since process launch. */
+export const messagesSentCounter = new client.Counter({
+  name: 'telly_messages_sent_total',
+  help: 'Total in-app messages sent',
+});
+
 // ── Auth metrics ──────────────────────────────────────────────────────────────
 
 /** Total successful logins since process launch. */

@@ -20,6 +20,8 @@ model User {
   transactions       Transaction[]
   callsAsCallee      CallLog[]     @relation("callee")
   callsAsCaller      CallLog[]     @relation("caller")
+  sentMessages       Message[]     @relation("sent")
+  receivedMessages   Message[]     @relation("received")
 }
 
 model Transaction {
@@ -45,4 +47,15 @@ model CallLog {
   transcription String?
   caller        User      @relation("caller", fields: [callerId], references: [id])
   callee        User      @relation("callee", fields: [calleeId], references: [id])
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  senderId    String
+  recipientId String
+  body        String
+  sentAt      DateTime  @default(now())
+  readAt      DateTime?
+  sender      User      @relation("sent", fields: [senderId], references: [id])
+  recipient   User      @relation("received", fields: [recipientId], references: [id])
 }

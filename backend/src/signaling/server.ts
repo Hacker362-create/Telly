@@ -18,6 +18,7 @@ import {
   callsEndedCounter,
   callDurationHistogram,
   onlineUsersGauge,
+  messagesSentCounter,
 } from '../metrics/registry';
 import {
   setPresence,
@@ -182,6 +183,35 @@ export function createSignalingServer(httpServer: http.Server): Server {
         data: { endedAt, durationMs },
       }).catch((err) => console.error('[Signaling] CallLog update failed:', err));
     });
+
+    // Real-time message delivery
+    // The client may send a message via the socket so the recipient receives it
+    // instantly without polling. The message is persisted to the DB via Prisma
+    // and then forwarded to the recipient's socket room (if they are online).
+    socket.on(
+      'message:send',
+      async ({ recipientId, body }: { recipientId: string; body: string }) => {
+        if (!recipientId || typeof body !== 'string' || body.trim().length === 0) return;
+        if (recipientId === userId) return; // no self-messaging
+
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const message = await (prisma.message as any).create({
+            data: { senderId: userId, recipientId, body: body.trim() },
+            select: { id: true, senderId: true, recipientId: true, body: true, sentAt: true },
+          });
+          messagesSentCounter.inc();
+
+          // Deliver to the recipient's socket room (online users get it instantly)
+          io.to(`user:${recipientId}`).emit('message:new', message);
+
+          // Echo back to the sender so they can update their local UI
+          socket.emit('message:sent', message);
+        } catch (err) {
+          console.error('[Signaling] message:send failed:', err);
+        }
+      },
+    );
 
     socket.on('disconnect', () => {
       socket.leave(`user:${userId}`);
