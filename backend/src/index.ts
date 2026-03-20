@@ -16,6 +16,7 @@ import roomsRouter from './routes/rooms';
 import metricsRouter from './routes/metrics';
 import presenceRouter from './routes/presence';
 import messagesRouter from './routes/messages';
+import voicemailRouter from './routes/voicemail';
 import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
@@ -35,6 +36,7 @@ app.use('/media/rooms', roomsRouter);
 app.use('/contacts', contactsRouter);
 app.use('/presence', presenceRouter);
 app.use('/messages', messagesRouter);
+app.use('/voicemail', voicemailRouter);
 app.use('/metrics', metricsRouter);
 
 const httpServer = http.createServer(app);

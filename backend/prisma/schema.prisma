@@ -22,6 +22,8 @@ model User {
   callsAsCaller      CallLog[]     @relation("caller")
   sentMessages       Message[]     @relation("sent")
   receivedMessages   Message[]     @relation("received")
+  voicemailsSent     Voicemail[]   @relation("voicemailsCaller")
+  voicemailsReceived Voicemail[]   @relation("voicemailsRecipient")
 }
 
 model Transaction {
@@ -58,4 +60,17 @@ model Message {
   readAt      DateTime?
   sender      User      @relation("sent", fields: [senderId], references: [id])
   recipient   User      @relation("received", fields: [recipientId], references: [id])
+}
+
+model Voicemail {
+  id          String    @id @default(uuid())
+  callerId    String
+  recipientId String
+  audioUrl    String
+  durationSec Int
+  transcription String?
+  leftAt      DateTime  @default(now())
+  listenedAt  DateTime?
+  caller      User      @relation("voicemailsCaller", fields: [callerId], references: [id])
+  recipient   User      @relation("voicemailsRecipient", fields: [recipientId], references: [id])
 }

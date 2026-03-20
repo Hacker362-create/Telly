@@ -73,6 +73,14 @@ export const messagesSentCounter = new client.Counter({
   help: 'Total in-app messages sent',
 });
 
+// ── Voicemail metrics ─────────────────────────────────────────────────────────
+
+/** Total voicemails left since process launch. */
+export const voicemailsLeftCounter = new client.Counter({
+  name: 'telly_voicemails_left_total',
+  help: 'Total voicemails left by callers',
+});
+
 // ── Auth metrics ──────────────────────────────────────────────────────────────
 
 /** Total successful logins since process launch. */
