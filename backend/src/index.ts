@@ -20,7 +20,11 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'telly-backend' }));
+app.get('/health', (_req, res) => {
+  // Allow the start-here.html launcher (file:// or any origin) to poll this endpoint
+  res.set('Access-Control-Allow-Origin', '*');
+  res.json({ status: 'ok', service: 'telly-backend' });
+});
 app.use('/auth', authRouter);
 app.use('/subscription', subscriptionRouter);
 app.use('/calls', callsRouter);

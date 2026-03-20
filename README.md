@@ -1,7 +1,9 @@
 # Telly – Subscription-Based VoIP Calling Platform
 
 > ## 🌐 Your app runs at → **[http://localhost:3000](http://localhost:3000)**
-> Run `./start.sh` first (details below), then open that URL.
+> ⚠️ You must **start the server first** (see below) — the URL won't work until the server is running.
+> 
+> **New here?** Open **[start-here.html](start-here.html)** in your browser — it detects whether the server is up and walks you through startup step-by-step.
 
 ![Telly login screen](docs/ui-screenshot.png)
 
@@ -26,6 +28,8 @@ start.bat
 That's it. The script auto-creates `.env`, installs dependencies, sets up the database, and starts the server.
 
 **Then open your browser → [http://localhost:3000](http://localhost:3000)**
+
+> **Getting `ERR_CONNECTION_REFUSED`?** That means the server isn't running yet. Run `./start.sh` (Linux/macOS) or `start.bat` (Windows) first, then refresh.
 
 You'll see the Telly web UI where you can:
 - **Register** a new account
