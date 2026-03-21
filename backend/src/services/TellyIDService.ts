@@ -50,6 +50,25 @@ export function generateRandomDigit(): number {
 }
 
 /**
+ * Generate a numeric suffix that fits within MAX_ID_LENGTH for a given base.
+ */
+export function generateSuffixForBase(baseUsername: string): number {
+  const availableDigits = MAX_ID_LENGTH - baseUsername.length - 1; // minus separator '-'
+  if (availableDigits <= 0) {
+    throw new Error(
+      `Base username is too long to format Telly ID: ${baseUsername}`
+    );
+  }
+
+  // Keep suffixes in the same practical range while respecting available space.
+  if (availableDigits === 1) {
+    return generateRandomDigit();
+  }
+
+  return generateRandomSuffix();
+}
+
+/**
  * Generate fallback random ID (adjective-noun-number)
  */
 export function generateFallbackID(): { baseUsername: string; suffix: number } {
@@ -107,7 +126,7 @@ export async function generateUniqueTellyID(
 
   // Try to find a unique suffix
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const suffix = generateRandomSuffix();
+    const suffix = generateSuffixForBase(baseUsername);
     const tellyId = formatTellyID(baseUsername, suffix);
 
     const exists = await tellyIDExists(tellyId);
@@ -144,7 +163,7 @@ export async function createTellyID(userId: string, email: string): Promise<stri
     if (baseUsername.length >= 3) {
       // Try with numeric suffix
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        numericSuffix = generateRandomSuffix();
+        numericSuffix = generateSuffixForBase(baseUsername);
         const tellyId = formatTellyID(baseUsername, numericSuffix);
         if (!(await tellyIDExists(tellyId))) {
           const tellyIDRecord = await prisma.tellyID.create({

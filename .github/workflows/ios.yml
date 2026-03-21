@@ -67,11 +67,14 @@ jobs:
       - name: Validate Xcode project
         id: xcode_project
         run: |
-          if [[ -f Telly.xcodeproj/project.pbxproj ]] && grep -q "rootObject" Telly.xcodeproj/project.pbxproj; then
+          if [[ ! -f Telly.xcodeproj/project.pbxproj ]]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping iOS lane: Telly.xcodeproj/project.pbxproj is missing."
+          elif xcodebuild -list -project Telly.xcodeproj >/dev/null 2>&1; then
             echo "valid=true" >> "$GITHUB_OUTPUT"
           else
             echo "valid=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping iOS lane: Telly.xcodeproj/project.pbxproj is missing or not a full Xcode project file."
+            echo "Skipping iOS lane: Telly.xcodeproj is present but not parseable by xcodebuild."
           fi
 
       - name: Set up Ruby
