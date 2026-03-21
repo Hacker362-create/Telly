@@ -19,9 +19,19 @@ import { subscriptionService } from '../services/SubscriptionService';
 import { theme } from '../theme';
 import AppCard from '../components/AppCard';
 import FadeInView from '../components/FadeInView';
+import AppInput from '../components/AppInput';
+import AppButton from '../components/AppButton';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
+};
+
+type ContactItem = {
+  id: string;
+  name: string;
+  phone?: string;
+  tellyId?: string;
+  userId?: string;
 };
 
 const API_URL =
@@ -29,17 +39,41 @@ const API_URL =
   ?? (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.API_URL
   ?? 'https://api.telly.co.ke';
 
-const DEMO_CONTACTS = [
-  { id: 'user-demo-1', name: 'Alice Kamau', phone: '+254711000001' },
-  { id: 'user-demo-2', name: 'Bob Otieno', phone: '+254722000002' },
-  { id: 'user-demo-3', name: 'Carol Njeri', phone: '+254733000003' },
-];
-
 export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [userName, setUserName] = useState('');
   const [tellyId, setTellyId] = useState('');
   const [successRate, setSuccessRate] = useState<number | null>(null);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [authToken, setAuthToken] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ContactItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [savingTellyId, setSavingTellyId] = useState<string | null>(null);
+
+  const loadSavedContacts = async (token: string): Promise<void> => {
+    try {
+      const res = await fetch(`${API_URL}/telly-id/contacts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setContacts([]);
+        return;
+      }
+
+      const payload = await res.json() as {
+        contacts?: Array<{ id: string; tellyId: string; displayName?: string | null }>;
+      };
+      const realContacts = (payload.contacts ?? []).map((c) => ({
+        id: c.id,
+        name: c.displayName?.trim() || c.tellyId,
+        tellyId: c.tellyId,
+      }));
+      setContacts(realContacts);
+    } catch {
+      setContacts([]);
+    }
+  };
 
   useEffect(() => {
     subscriptionService.checkStatus().then(setIsSubscribed);
@@ -73,6 +107,12 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
       })
       .catch(() => undefined);
 
+    AsyncStorage.getItem('authToken').then((token) => {
+      if (!token) return;
+      setAuthToken(token);
+      loadSavedContacts(token).catch(() => undefined);
+    }).catch(() => undefined);
+
     signalingService.onIncomingCall((callId, callerId) => {
       navigation.navigate('IncomingCall', { callId, callerId });
     });
@@ -82,7 +122,22 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
     });
   }, [navigation]);
 
-  const handleCall = (contactId: string): void => {
+  const resolveRecipientId = async (contact: ContactItem): Promise<string | null> => {
+    if (contact.userId) return contact.userId;
+    if (!contact.tellyId) return null;
+
+    try {
+      const res = await fetch(`${API_URL}/telly-id/lookup/${encodeURIComponent(contact.tellyId)}`);
+      if (!res.ok) return null;
+      const payload = await res.json() as { userId?: string; isActive?: boolean; isSubscriptionValid?: boolean };
+      if (!payload.userId || payload.isActive === false || payload.isSubscriptionValid === false) return null;
+      return payload.userId;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleCall = async (contact: ContactItem): Promise<void> => {
     if (!isSubscribed) {
       Alert.alert(
         'No Active Subscription',
@@ -94,9 +149,102 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
       );
       return;
     }
-    signalingService.warmupCall(contactId);
-    const callId = signalingService.initiateCall(contactId);
-    navigation.navigate('Call', { callId, remoteUserId: contactId, incoming: false });
+
+    const recipientId = await resolveRecipientId(contact);
+    if (!recipientId) {
+      Alert.alert(
+        'Recipient unavailable',
+        'This contact could not be resolved to an active Telly user. Add a valid Telly ID contact and try again.',
+      );
+      return;
+    }
+
+    signalingService.warmupCall(recipientId);
+    const callId = signalingService.initiateCall(recipientId);
+    navigation.navigate('Call', {
+      callId,
+      remoteUserId: contact.name || contact.tellyId || recipientId,
+      incoming: false,
+    });
+  };
+
+  const handleSearch = async (): Promise<void> => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      Alert.alert('Search query too short', 'Enter at least 2 characters.');
+      return;
+    }
+    if (!authToken) {
+      Alert.alert('Not signed in', 'Please sign in again to search contacts.');
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const res = await fetch(`${API_URL}/contacts/search?q=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) {
+        Alert.alert('Search failed', 'Could not search contacts right now.');
+        return;
+      }
+      const payload = await res.json() as {
+        contacts?: Array<{ id: string; name: string; phoneNumber?: string; tellyId?: string | null }>;
+      };
+      const rows = (payload.contacts ?? []).map((c) => ({
+        id: c.id,
+        userId: c.id,
+        name: c.name,
+        phone: c.phoneNumber,
+        tellyId: c.tellyId ?? undefined,
+      }));
+      setSearchResults(rows);
+    } catch {
+      Alert.alert('Search failed', 'Check your network and try again.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const isSaved = (candidate: ContactItem): boolean => {
+    if (!candidate.tellyId) return false;
+    return contacts.some((c) => c.tellyId === candidate.tellyId);
+  };
+
+  const handleSaveContact = async (candidate: ContactItem): Promise<void> => {
+    if (!candidate.tellyId) {
+      Alert.alert('Cannot save contact', 'This user has no Telly ID yet.');
+      return;
+    }
+    if (!authToken) {
+      Alert.alert('Not signed in', 'Please sign in again to save contacts.');
+      return;
+    }
+
+    setSavingTellyId(candidate.tellyId);
+    try {
+      const res = await fetch(`${API_URL}/telly-id/contacts`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tellyId: candidate.tellyId,
+          displayName: candidate.name,
+        }),
+      });
+      if (!res.ok) {
+        Alert.alert('Save failed', 'Could not save this contact.');
+        return;
+      }
+      await loadSavedContacts(authToken);
+      Alert.alert('Saved', `${candidate.name} has been added to your contacts.`);
+    } catch {
+      Alert.alert('Save failed', 'Check your network and try again.');
+    } finally {
+      setSavingTellyId(null);
+    }
   };
 
   const handleLogout = async (): Promise<void> => {
@@ -158,20 +306,82 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
         )}
       </FadeInView>
 
+      <FadeInView delay={140} style={styles.searchWrap}>
+        <AppCard style={styles.searchCard}>
+          <Text style={styles.searchTitle}>Add/Search Contacts</Text>
+          <AppInput
+            label="Find by name, phone, or Telly ID"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="e.g. alice or +2547..."
+            autoCapitalize="none"
+          />
+          <View style={styles.searchBtnRow}>
+            <AppButton
+              label={isSearching ? 'Searching...' : 'Search Directory'}
+              onPress={() => { handleSearch().catch(() => undefined); }}
+              loading={isSearching}
+              style={styles.searchBtn}
+            />
+          </View>
+        </AppCard>
+      </FadeInView>
+
+      {searchResults.length > 0 && (
+        <FadeInView delay={155}>
+          <Text style={styles.sectionTitle}>Directory Results</Text>
+          <FlatList
+            data={searchResults}
+            horizontal
+            keyExtractor={(item) => `search-${item.id}`}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.searchResultsRow}
+            renderItem={({ item }) => (
+              <AppCard style={styles.searchResultCard}>
+                <Text style={styles.searchResultName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.searchResultSub} numberOfLines={1}>{item.tellyId ?? item.phone ?? item.id}</Text>
+                <View style={styles.searchActionsRow}>
+                  <AppButton
+                    label="Call"
+                    onPress={() => { handleCall(item).catch(() => undefined); }}
+                    style={styles.searchActionBtn}
+                  />
+                  {!isSaved(item) && (
+                    <AppButton
+                      label={savingTellyId === item.tellyId ? 'Saving...' : 'Save'}
+                      onPress={() => { handleSaveContact(item).catch(() => undefined); }}
+                      loading={savingTellyId === item.tellyId}
+                      variant="ghost"
+                      style={styles.searchActionBtn}
+                    />
+                  )}
+                </View>
+              </AppCard>
+            )}
+          />
+        </FadeInView>
+      )}
+
       <FlatList
-        data={DEMO_CONTACTS}
+        data={contacts}
         contentContainerStyle={styles.listContent}
         keyExtractor={(item) => item.id}
+        ListEmptyComponent={
+          <AppCard style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No saved contacts yet</Text>
+            <Text style={styles.emptySub}>Use search above, then tap Save to add real Telly contacts.</Text>
+          </AppCard>
+        }
         renderItem={({ item, index }) => (
           <FadeInView delay={150 + (index * 45)}>
-            <TouchableOpacity onPress={() => handleCall(item.id)} activeOpacity={0.92}>
+            <TouchableOpacity onPress={() => { handleCall(item).catch(() => undefined); }} activeOpacity={0.92}>
               <AppCard style={styles.contactRow}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>{item.name[0]}</Text>
                 </View>
                 <View style={styles.contactInfo}>
                   <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactPhone}>{item.phone}</Text>
+                  <Text style={styles.contactPhone}>{item.phone ?? item.tellyId ?? 'Telly contact'}</Text>
                 </View>
                 <View style={styles.callPill}>
                   <Text style={styles.callIcon}>📞</Text>
@@ -262,7 +472,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  searchWrap: { marginHorizontal: 16, marginBottom: 10 },
+  searchCard: { padding: 12 },
+  searchTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
+  searchBtnRow: { marginTop: 10 },
+  searchBtn: { width: '100%' },
+  searchResultsRow: { paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
+  searchResultCard: { width: 230, padding: 12 },
+  searchResultName: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
+  searchResultSub: { color: theme.colors.muted, marginTop: 4, fontSize: 12 },
+  searchActionsRow: { flexDirection: 'row', marginTop: 10, gap: 8 },
+  searchActionBtn: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingBottom: 22 },
+  emptyCard: { padding: 14, marginTop: 8 },
+  emptyTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
+  emptySub: { color: theme.colors.muted, marginTop: 4, fontSize: 12 },
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
