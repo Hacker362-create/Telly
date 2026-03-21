@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { theme } from '../theme';
+import { signalingService } from '../services/SignalingService';
 import AppCard from '../components/AppCard';
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
@@ -83,6 +84,7 @@ export default function LoginScreen({ navigation }: Props): React.JSX.Element {
           ['userPhone', data.user.phoneNumber],
           ['tellyId', resolvedTellyId ?? ''],
         ]);
+        signalingService.connect(data.user.id, data.token);
         navigation.replace('Home');
       }
     } catch {

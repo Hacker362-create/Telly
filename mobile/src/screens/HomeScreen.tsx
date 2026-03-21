@@ -113,10 +113,6 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
       loadSavedContacts(token).catch(() => undefined);
     }).catch(() => undefined);
 
-    signalingService.onIncomingCall((callId, callerId) => {
-      navigation.navigate('IncomingCall', { callId, callerId });
-    });
-
     signalingService.onSubscriptionGrace((message) => {
       Alert.alert('Subscription grace period', message);
     });

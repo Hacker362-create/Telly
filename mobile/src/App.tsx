@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from './screens/LoginScreen';
@@ -28,6 +28,7 @@ export type RootStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const stackScreenOptions = {
   headerStyle: { backgroundColor: theme.colors.surface },
   headerTitleStyle: { color: theme.colors.text, fontWeight: '700' as const },
@@ -60,6 +61,13 @@ export default function App(): React.JSX.Element {
     bootstrap().catch(console.error);
   }, []);
 
+  useEffect(() => {
+    signalingService.onIncomingCall((callId, callerId) => {
+      if (!navigationRef.isReady()) return;
+      navigationRef.navigate('IncomingCall', { callId, callerId });
+    });
+  }, []);
+
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }}>
@@ -69,7 +77,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator initialRouteName={isAuthenticated ? 'Home' : 'Login'} screenOptions={stackScreenOptions}>
         {/* Auth flow — no header needed */}
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
