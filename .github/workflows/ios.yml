@@ -64,7 +64,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate Xcode project
+        id: xcode_project
+        run: |
+          if [[ -f Telly.xcodeproj/project.pbxproj ]] && grep -q "rootObject" Telly.xcodeproj/project.pbxproj; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping iOS lane: Telly.xcodeproj/project.pbxproj is missing or not a full Xcode project file."
+          fi
+
       - name: Set up Ruby
+        if: steps.xcode_project.outputs.valid == 'true'
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
@@ -73,7 +84,7 @@ jobs:
 
       # Cache CocoaPods if a Podfile exists
       - name: Cache CocoaPods
-        if: hashFiles('mobile/ios/Podfile') != ''
+        if: steps.xcode_project.outputs.valid == 'true' && hashFiles('mobile/ios/Podfile') != ''
         uses: actions/cache@v4
         with:
           path: mobile/ios/Pods
@@ -81,17 +92,18 @@ jobs:
           restore-keys: pods-${{ runner.os }}-
 
       - name: Install CocoaPods
-        if: hashFiles('mobile/ios/Podfile') != ''
+        if: steps.xcode_project.outputs.valid == 'true' && hashFiles('mobile/ios/Podfile') != ''
         run: bundle exec pod install
         working-directory: mobile/ios
 
       - name: Run Fastlane (${{ env.LANE }})
+        if: steps.xcode_project.outputs.valid == 'true'
         run: bundle exec fastlane ios ${{ env.LANE }}
         working-directory: mobile/ios
 
       # Upload IPA as a workflow artifact (release builds)
       - name: Upload IPA artifact
-        if: ${{ env.LANE == 'build_release' || env.LANE == 'deploy_firebase' }}
+        if: ${{ steps.xcode_project.outputs.valid == 'true' && (env.LANE == 'build_release' || env.LANE == 'deploy_firebase') }}
         uses: actions/upload-artifact@v4
         with:
           name: telly-release-ipa
