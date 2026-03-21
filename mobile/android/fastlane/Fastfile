@@ -45,12 +45,6 @@ platform :android do
       task: "assemble",
       build_type: "Debug",
       print_command: true,
-      properties: {
-        "android.injected.signing.store.file"     => ENV["MYAPP_UPLOAD_STORE_FILE"],
-        "android.injected.signing.store.password" => ENV["MYAPP_UPLOAD_STORE_PASSWORD"],
-        "android.injected.signing.key.alias"      => ENV["MYAPP_UPLOAD_KEY_ALIAS"],
-        "android.injected.signing.key.password"   => ENV["MYAPP_UPLOAD_KEY_PASSWORD"],
-      }.compact,
     )
     UI.success "Debug APK → #{lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]}"
   end

@@ -20,8 +20,8 @@
 
 default_platform(:ios)
 
-PROJECT   = "ios/Telly.xcodeproj"
-WORKSPACE = "ios/Telly.xcworkspace"   # used when CocoaPods is present
+PROJECT   = "Telly.xcodeproj"
+WORKSPACE = "Telly.xcworkspace"   # used when CocoaPods is present
 SCHEME    = "Telly"
 BUNDLE_ID = ENV["APP_IDENTIFIER"] || "com.telly"
 
@@ -30,8 +30,7 @@ platform :ios do
   # ── Setup ──────────────────────────────────────────────────────────────────
 
   before_all do
-    # Ensure Xcode toolchain is available on CI agents
-    xcversion(version: "~> 15.0") if ENV["CI"]
+    # Runners already provide Xcode; avoid deprecated xcversion dependency.
   end
 
   # ── Code Signing (Match) ──────────────────────────────────────────────────
