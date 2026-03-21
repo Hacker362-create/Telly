@@ -159,6 +159,17 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
+    if (contact.tellyId) {
+      signalingService.warmupCall(recipientId);
+      const callId = signalingService.initiateCallByTellyId(contact.tellyId);
+      navigation.navigate('Call', {
+        callId,
+        remoteUserId: contact.name || contact.tellyId || recipientId,
+        incoming: false,
+      });
+      return;
+    }
+
     signalingService.warmupCall(recipientId);
     const callId = signalingService.initiateCall(recipientId);
     navigation.navigate('Call', {

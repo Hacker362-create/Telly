@@ -10,6 +10,8 @@ const SIGNALING_URL = (globalThis as { process?: { env?: Record<string, string |
 type IncomingCallHandler = (callId: string, callerId: string) => void;
 type CallAcceptedHandler = (callId: string, answer?: object) => void;
 type CallEndedHandler = (callId: string) => void;
+type CallRejectedHandler = (callId: string, reason?: string) => void;
+type CallUnavailableHandler = (callId: string, reason?: string) => void;
 type OfferHandler = (offer: object) => void;
 type IceCandidateHandler = (candidate: object) => void;
 type CallQueuedHandler = (etaMs: number) => void;
@@ -34,7 +36,10 @@ class SignalingService {
   private incomingCallHandlers: IncomingCallHandler[] = [];
   private callAcceptedHandlers = new Map<string, CallAcceptedHandler>();
   private callEndedHandlers = new Map<string, CallEndedHandler>();
+  private callRejectedHandlers = new Map<string, CallRejectedHandler>();
+  private callUnavailableHandlers = new Map<string, CallUnavailableHandler>();
   private offerHandlers = new Map<string, OfferHandler>();
+  private pendingOffers = new Map<string, object>();
   private iceCandidateHandlers = new Map<string, IceCandidateHandler>();
   private callQueuedHandlers = new Map<string, CallQueuedHandler>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -74,7 +79,15 @@ class SignalingService {
     this.socket.on('call:incoming', ({ callId, callerId, offer }: { callId: string; callerId: string; offer?: object }) => {
       this.incomingCallHandlers.forEach((h) => h(callId, callerId));
       // Deliver the offer to any waiting handler for this callId
-      if (offer) this.offerHandlers.get(callId)?.(offer);
+      if (offer) {
+        const handler = this.offerHandlers.get(callId);
+        if (handler) {
+          handler(offer);
+        } else {
+          // Buffer offer until callee opens call screen and registers onOffer.
+          this.pendingOffers.set(callId, offer);
+        }
+      }
     });
 
     this.socket.on('call:accepted', ({ callId, answer }: { callId: string; answer?: object }) => {
@@ -85,7 +98,38 @@ class SignalingService {
       this.callEndedHandlers.get(callId)?.(callId);
       this.callAcceptedHandlers.delete(callId);
       this.callEndedHandlers.delete(callId);
+      this.callRejectedHandlers.delete(callId);
+      this.callUnavailableHandlers.delete(callId);
       this.offerHandlers.delete(callId);
+      this.pendingOffers.delete(callId);
+      this.iceCandidateHandlers.delete(callId);
+      this.callQueuedHandlers.delete(callId);
+      this.iceRestartHandlers.delete(callId);
+      this.relayModeHandlers.delete(callId);
+    });
+
+    this.socket.on('call:rejected', ({ callId, reason }: { callId: string; reason?: string }) => {
+      this.callRejectedHandlers.get(callId)?.(callId, reason);
+      this.callAcceptedHandlers.delete(callId);
+      this.callEndedHandlers.delete(callId);
+      this.callRejectedHandlers.delete(callId);
+      this.callUnavailableHandlers.delete(callId);
+      this.offerHandlers.delete(callId);
+      this.pendingOffers.delete(callId);
+      this.iceCandidateHandlers.delete(callId);
+      this.callQueuedHandlers.delete(callId);
+      this.iceRestartHandlers.delete(callId);
+      this.relayModeHandlers.delete(callId);
+    });
+
+    this.socket.on('call:unavailable', ({ callId, reason }: { callId: string; reason?: string }) => {
+      this.callUnavailableHandlers.get(callId)?.(callId, reason);
+      this.callAcceptedHandlers.delete(callId);
+      this.callEndedHandlers.delete(callId);
+      this.callRejectedHandlers.delete(callId);
+      this.callUnavailableHandlers.delete(callId);
+      this.offerHandlers.delete(callId);
+      this.pendingOffers.delete(callId);
       this.iceCandidateHandlers.delete(callId);
       this.callQueuedHandlers.delete(callId);
       this.iceRestartHandlers.delete(callId);
@@ -124,7 +168,10 @@ class SignalingService {
     this.incomingCallHandlers = [];
     this.callAcceptedHandlers.clear();
     this.callEndedHandlers.clear();
+    this.callRejectedHandlers.clear();
+    this.callUnavailableHandlers.clear();
     this.offerHandlers.clear();
+    this.pendingOffers.clear();
     this.iceCandidateHandlers.clear();
     this.callQueuedHandlers.clear();
     this.iceRestartHandlers.clear();
@@ -142,6 +189,12 @@ class SignalingService {
   initiateCall(calleeId: string): string {
     const callId = `call_${Date.now()}`;
     this.socket?.emit('call:initiate', { calleeId, callId });
+    return callId;
+  }
+
+  initiateCallByTellyId(calleeTellyId: string): string {
+    const callId = `call_${Date.now()}`;
+    this.socket?.emit('call:initiate', { calleeTellyId, callId });
     return callId;
   }
 
@@ -179,6 +232,10 @@ class SignalingService {
   /** Accept an incoming call without an SDP answer (legacy / no-WebRTC path). */
   acceptCall(callId: string): void {
     this.socket?.emit('call:accept', { callId, answer: {} });
+  }
+
+  rejectCall(callId: string, reason = 'rejected'): void {
+    this.socket?.emit('call:reject', { callId, reason });
   }
 
   endCall(callId: string, stats?: CallEndStats): void {
@@ -229,9 +286,22 @@ class SignalingService {
     this.callEndedHandlers.set(callId, handler);
   }
 
+  onCallRejected(callId: string, handler: CallRejectedHandler): void {
+    this.callRejectedHandlers.set(callId, handler);
+  }
+
+  onCallUnavailable(callId: string, handler: CallUnavailableHandler): void {
+    this.callUnavailableHandlers.set(callId, handler);
+  }
+
   /** Register a one-time handler for the SDP offer for a given call (callee side). */
   onOffer(callId: string, handler: OfferHandler): void {
     this.offerHandlers.set(callId, handler);
+    const buffered = this.pendingOffers.get(callId);
+    if (buffered) {
+      this.pendingOffers.delete(callId);
+      handler(buffered);
+    }
   }
 
   /** Register a handler for remote ICE candidates for a given call. */

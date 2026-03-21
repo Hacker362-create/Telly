@@ -92,6 +92,27 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
             Alert.alert('Call queued', `Callee is busy. Retrying in about ${Math.max(1, Math.round(etaMs / 1000))}s.`);
           }
         });
+
+        signalingService.onCallUnavailable(callId, (_, reason) => {
+          if (didUnmount) return;
+          setStatus('ended');
+          const label = reason === 'offline'
+            ? 'Recipient is offline right now.'
+            : reason === 'user_not_found'
+              ? 'Recipient was not found.'
+              : reason === 'cannot_call_self'
+                ? 'You cannot call yourself.'
+                : 'Recipient is unavailable.';
+          Alert.alert('Call unavailable', label);
+          setTimeout(() => navigation.goBack(), 300);
+        });
+
+        signalingService.onCallRejected(callId, () => {
+          if (didUnmount) return;
+          setStatus('ended');
+          Alert.alert('Call declined', `${remoteUserId} declined the call.`);
+          setTimeout(() => navigation.goBack(), 300);
+        });
       } else {
         // Callee: the offer already arrived with the call:incoming event.
         // Accept the incoming call — the answer is created inside acceptCall.

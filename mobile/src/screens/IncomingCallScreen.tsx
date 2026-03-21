@@ -53,7 +53,7 @@ export default function IncomingCallScreen({ navigation, route }: Props): React.
 
   const handleDecline = (): void => {
     setIsDeclining(true);
-    signalingService.endCall(callId);
+    signalingService.rejectCall(callId, 'declined');
     setTimeout(() => navigation.goBack(), 300);
   };
 

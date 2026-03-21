@@ -59,7 +59,25 @@ interface EndCallStats {
 
 const activeCalls = new Map<string, CallSession>();
 const pendingCallQueue = new Map<string, Array<{ callId: string; callerId: string; offer?: RTCSessionDescriptionInit }>>();
+const userSockets = new Map<string, Set<string>>();
 let signalingIo: Server | null = null;
+
+function addUserSocket(userId: string, socketId: string): void {
+  const ids = userSockets.get(userId) ?? new Set<string>();
+  ids.add(socketId);
+  userSockets.set(userId, ids);
+}
+
+function removeUserSocket(userId: string, socketId: string): void {
+  const ids = userSockets.get(userId);
+  if (!ids) return;
+  ids.delete(socketId);
+  if (ids.size === 0) userSockets.delete(userId);
+}
+
+function isUserOnline(userId: string): boolean {
+  return (userSockets.get(userId)?.size ?? 0) > 0;
+}
 
 const decodePayload = (payload: unknown): Record<string, unknown> => {
   if (typeof payload === 'string') {
@@ -106,6 +124,8 @@ export function createSignalingServer(httpServer: http.Server): Server {
   io.on('connection', (socket: Socket) => {
     const { userId, fcmToken } = socket.handshake.auth as { userId: string; fcmToken?: string };
     socket.join(`user:${userId}`);
+    addUserSocket(userId, socket.id);
+    console.info(`[Signaling] connected user=${userId} socket=${socket.id}`);
 
     // Mark user as online and update the gauge
     setPresence(userId, 'online').catch((err) =>
@@ -153,16 +173,80 @@ export function createSignalingServer(httpServer: http.Server): Server {
     });
 
     // Initiate an outgoing call
-    socket.on('call:initiate', async ({ calleeId, callId: inboundCallId, offer }: { calleeId: string; callId?: string; offer?: RTCSessionDescriptionInit }) => {
-      const callId = inboundCallId ?? `call_${Date.now()}_${userId}`;
-      const calleeBusy = Array.from(activeCalls.values()).some(
-        (c) => c.calleeId === calleeId || c.callerId === calleeId,
+    socket.on('call:initiate', async ({
+      calleeId,
+      calleeTellyId,
+      callId: inboundCallId,
+      offer,
+    }: {
+      calleeId?: string;
+      calleeTellyId?: string;
+      callId?: string;
+      offer?: RTCSessionDescriptionInit;
+    }) => {
+      console.info(
+        `[Signaling] call:initiate caller=${userId} calleeId=${calleeId ?? '-'} calleeTellyId=${calleeTellyId ?? '-'} callId=${inboundCallId ?? '-'}`,
       );
 
+      let resolvedCalleeId = calleeId;
+      if (!resolvedCalleeId && calleeTellyId) {
+        const resolved = await prisma.tellyID.findFirst({
+          where: {
+            OR: [
+              { tellyId: calleeTellyId },
+              { vanityId: calleeTellyId },
+            ],
+          },
+          select: { userId: true },
+        }).catch(() => null);
+        resolvedCalleeId = resolved?.userId;
+      }
+
+      if (!resolvedCalleeId) {
+        console.warn(`[Signaling] call:initiate unresolved-callee caller=${userId} calleeTellyId=${calleeTellyId ?? '-'}`);
+        socket.emit('call:unavailable', {
+          callId: inboundCallId ?? `call_${Date.now()}_${userId}`,
+          reason: 'user_not_found',
+        });
+        return;
+      }
+
+      if (resolvedCalleeId === userId) {
+        socket.emit('call:unavailable', {
+          callId: inboundCallId ?? `call_${Date.now()}_${userId}`,
+          reason: 'cannot_call_self',
+        });
+        return;
+      }
+
+      const callId = inboundCallId ?? `call_${Date.now()}_${userId}`;
+      const calleeBusy = Array.from(activeCalls.values()).some(
+        (c) => c.calleeId === resolvedCalleeId || c.callerId === resolvedCalleeId,
+      );
+
+      const calleeOnline = isUserOnline(resolvedCalleeId);
+      if (!calleeOnline) {
+        console.warn(`[Signaling] call:initiate callee-offline callId=${callId} callee=${resolvedCalleeId}`);
+        socket.emit('call:unavailable', { callId, reason: 'offline' });
+
+        const caller = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        }).catch(() => null);
+
+        sendIncomingCallPush(resolvedCalleeId, {
+          callId,
+          callerId: userId,
+          callerName: caller?.name ?? 'Telly User',
+        }).catch((err) => console.error('[Signaling] Push failed:', err));
+        return;
+      }
+
       if (calleeBusy) {
-        const queue = pendingCallQueue.get(calleeId) ?? [];
+        const queue = pendingCallQueue.get(resolvedCalleeId) ?? [];
         queue.push({ callId, callerId: userId, offer });
-        pendingCallQueue.set(calleeId, queue);
+        pendingCallQueue.set(resolvedCalleeId, queue);
+        console.info(`[Signaling] call:queued callId=${callId} caller=${userId} callee=${resolvedCalleeId} queue=${queue.length}`);
         socket.emit('call:queued', { callId, etaMs: 2500 + (queue.length * 1000) });
         return;
       }
@@ -172,7 +256,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
       const session: CallSession = {
         callId,
         callerId: userId,
-        calleeId,
+        calleeId: resolvedCalleeId,
         roomId,
         startedAt,
       };
@@ -183,15 +267,16 @@ export function createSignalingServer(httpServer: http.Server): Server {
 
       // Persist call record so we can log duration/data when it ends
       prisma.callLog.create({
-        data: { callerId: userId, calleeId, startedAt },
+        data: { callerId: userId, calleeId: resolvedCalleeId, startedAt },
       }).catch((err) => console.error('[Signaling] CallLog create failed:', err));
 
       // Notify the callee if they are online
-      io.to(`user:${calleeId}`).emit('call:incoming', {
+      io.to(`user:${resolvedCalleeId}`).emit('call:incoming', {
         callId,
         callerId: userId,
         offer,
       });
+      console.info(`[Signaling] call:incoming delivered callId=${callId} caller=${userId} callee=${resolvedCalleeId}`);
 
       // Also send a push notification to wake the callee's device if offline
       const caller = await prisma.user.findUnique({
@@ -199,7 +284,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
         select: { name: true },
       }).catch(() => null);
 
-      sendIncomingCallPush(calleeId, {
+      sendIncomingCallPush(resolvedCalleeId, {
         callId,
         callerId: userId,
         callerName: caller?.name ?? 'Telly User',
@@ -210,6 +295,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
     socket.on('call:offer:bin', ({ callId, payload }: { callId: string; payload: unknown }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
+      if (session.callerId !== userId) return;
       const decoded = decodePayload(payload);
       io.to(`user:${session.calleeId}`).emit('call:offer', { callId, offer: decoded.offer as RTCSessionDescriptionInit });
     });
@@ -218,6 +304,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
     socket.on('call:offer', ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
+      if (session.callerId !== userId) return;
       io.to(`user:${session.calleeId}`).emit('call:offer', { callId, offer });
     });
 
@@ -225,22 +312,40 @@ export function createSignalingServer(httpServer: http.Server): Server {
     socket.on('call:accept', ({ callId, answer }: { callId: string; answer: RTCSessionDescriptionInit }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
+      if (session.calleeId !== userId) return;
       socket.join(session.roomId);
       session.acceptedAt = new Date();
       callsConnectedCounter.inc();
       callSetupLatencyHistogram.observe(session.acceptedAt.getTime() - session.startedAt.getTime());
+      console.info(`[Signaling] call:accepted callId=${callId} caller=${session.callerId} callee=${session.calleeId}`);
       io.to(`user:${session.callerId}`).emit('call:accepted', { callId, answer });
     });
 
     socket.on('call:accept:bin', ({ callId, payload }: { callId: string; payload: unknown }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
+      if (session.calleeId !== userId) return;
       socket.join(session.roomId);
       session.acceptedAt = new Date();
       callsConnectedCounter.inc();
       callSetupLatencyHistogram.observe(session.acceptedAt.getTime() - session.startedAt.getTime());
       const decoded = decodePayload(payload);
+      console.info(`[Signaling] call:accepted(bin) callId=${callId} caller=${session.callerId} callee=${session.calleeId}`);
       io.to(`user:${session.callerId}`).emit('call:accepted', { callId, answer: decoded.answer as RTCSessionDescriptionInit });
+    });
+
+    socket.on('call:reject', ({ callId, reason }: { callId: string; reason?: string }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      if (session.calleeId !== userId) return;
+
+      const rejectionReason = reason ?? 'rejected';
+      console.info(`[Signaling] call:rejected callId=${callId} caller=${session.callerId} callee=${session.calleeId} reason=${rejectionReason}`);
+      io.to(`user:${session.callerId}`).emit('call:rejected', { callId, reason: rejectionReason });
+      io.to(session.roomId).emit('call:ended', { callId, reason: rejectionReason });
+      activeCalls.delete(callId);
+      activeCallsGauge.dec();
+      callsEndedCounter.inc();
     });
 
     // Relay ICE candidates for NAT traversal
@@ -322,6 +427,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
     socket.on('call:end', ({ callId, stats }: { callId: string; stats?: EndCallStats }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
+      console.info(`[Signaling] call:end callId=${callId} initiator=${userId}`);
 
       const endedAt = new Date();
       const durationMs = stats?.durationMs ?? (endedAt.getTime() - session.startedAt.getTime());
@@ -444,6 +550,8 @@ export function createSignalingServer(httpServer: http.Server): Server {
 
     socket.on('disconnect', () => {
       socket.leave(`user:${userId}`);
+      removeUserSocket(userId, socket.id);
+      console.info(`[Signaling] disconnected user=${userId} socket=${socket.id}`);
       clearPresence(userId).catch((err) =>
         console.error('[Signaling] Failed to clear presence:', err),
       );
