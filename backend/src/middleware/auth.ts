@@ -3,10 +3,24 @@
 // Also exports a general-purpose API rate limiter for authenticated endpoints.
 
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verify } from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'telly-secret-change-in-production';
+let prismaSingleton: {
+  user: { findUnique: (args: unknown) => Promise<{ isAdmin?: boolean } | null> }
+} | null = null;
+
+function getPrismaForAdminCheck(): {
+  user: { findUnique: (args: unknown) => Promise<{ isAdmin?: boolean } | null> }
+} {
+  if (prismaSingleton) return prismaSingleton;
+  const { PrismaClient } = require('@prisma/client') as typeof import('@prisma/client');
+  prismaSingleton = new PrismaClient() as unknown as {
+    user: { findUnique: (args: unknown) => Promise<{ isAdmin?: boolean } | null> }
+  };
+  return prismaSingleton;
+}
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -30,7 +44,7 @@ export function requireAuth(
 
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const payload = verify(token, JWT_SECRET) as { userId: string };
     req.userId = payload.userId;
     next();
   } catch {
@@ -51,3 +65,32 @@ export const apiLimiter = rateLimit({
   message: { error: 'Too many requests — please slow down' },
   skip: () => process.env.NODE_ENV === 'test',
 });
+
+/**
+ * Requires a valid JWT and admin user role.
+ */
+export async function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  requireAuth(req, res, async () => {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({ error: 'Authorization token required' });
+      return;
+    }
+
+    const user = await getPrismaForAdminCheck().user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
+
+    if (!user?.isAdmin) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    next();
+  });
+}

@@ -18,6 +18,18 @@ services:
       timeout: 5s
       retries: 3
 
+  coturn:
+    image: instrumentisto/coturn:4.6.2
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
   backend:
     build:
       context: ../backend
@@ -41,10 +53,17 @@ services:
       MEDIASOUP_ANNOUNCED_IP: "127.0.0.1"
       MEDIASOUP_RTC_MIN_PORT: "2000"
       MEDIASOUP_RTC_MAX_PORT: "2999"
+      STUN_SERVERS: "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+      TURN_URLS: "turn:localhost:3478?transport=udp,turn:localhost:3478?transport=tcp"
+      TURN_USERNAME: "telly"
+      TURN_CREDENTIAL: "dev-turn-password"
+      TURN_ENFORCE_RELAY: "false"
       PORT: 3000
     depends_on:
       redis:
         condition: service_healthy
+      coturn:
+        condition: service_started
     volumes:
       - backend_data:/app/data
 

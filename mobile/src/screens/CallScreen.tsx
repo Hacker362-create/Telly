@@ -3,12 +3,14 @@
 // Uses WebRTCService for SDP offer/answer + ICE candidate exchange.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
 import { signalingService } from '../services/SignalingService';
 import { webRTCService } from '../services/WebRTCService';
+import { theme } from '../theme';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Call'>;
@@ -20,6 +22,9 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [networkQuality, setNetworkQuality] = useState<'poor' | 'medium' | 'good'>('good');
+  const [bitrate, setBitrate] = useState(16000);
+  const [networkType, setNetworkType] = useState('unknown');
   const [status, setStatus] = useState<'ringing' | 'dialing' | 'connected' | 'ended'>(
     incoming ? 'ringing' : 'dialing',
   );
@@ -28,6 +33,7 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
   // ── WebRTC setup ────────────────────────────────────────────────────────────
   useEffect(() => {
     let didUnmount = false;
+    let relayRequested = false;
 
     const setupWebRTC = async (): Promise<void> => {
       await webRTCService.init();
@@ -35,6 +41,38 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
       // Forward local ICE candidates to the remote peer via signaling
       webRTCService.onIceCandidate((candidate) => {
         signalingService.sendIceCandidate(callId, candidate);
+      });
+
+      webRTCService.onQualityChanged((quality, nextBitrate) => {
+        setNetworkQuality(quality);
+        setBitrate(nextBitrate);
+      });
+
+      webRTCService.onTelemetry((stats) => {
+        if (!relayRequested && (stats.packetLossPct > 12 || stats.networkQuality === 'poor')) {
+          relayRequested = true;
+          webRTCService.enableRelayMode().catch(() => undefined);
+          signalingService.requestRelayFallback(callId);
+        }
+
+        signalingService.sendReliabilitySnapshot(callId, {
+          latencyMs: stats.latencyMs,
+          packetLossPct: stats.packetLossPct,
+          dataBytes: stats.bytesReceived + stats.bytesSent,
+          networkType,
+          iceRestartCount: webRTCService.getAdvancedStats().iceRestartCount,
+          relayUsed: webRTCService.getAdvancedStats().relayMode,
+          reconnectionEvents: webRTCService.getAdvancedStats().reconnectionEvents,
+        });
+      });
+
+      signalingService.onIceRestart(callId, () => {
+        webRTCService.restartIce().catch(() => undefined);
+      });
+
+      signalingService.onRelayMode(callId, () => {
+        relayRequested = true;
+        webRTCService.enableRelayMode().catch(() => undefined);
       });
 
       if (!incoming) {
@@ -46,6 +84,13 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
         signalingService.onCallAccepted(callId, async (_, answer) => {
           if (answer) await webRTCService.setRemoteAnswer(answer);
           if (!didUnmount) setStatus('connected');
+        });
+
+        signalingService.onCallQueued(callId, (etaMs) => {
+          if (!didUnmount) {
+            setStatus('dialing');
+            Alert.alert('Call queued', `Callee is busy. Retrying in about ${Math.max(1, Math.round(etaMs / 1000))}s.`);
+          }
         });
       } else {
         // Callee: the offer already arrived with the call:incoming event.
@@ -67,6 +112,14 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
       console.error('[CallScreen] WebRTC setup failed:', err);
     });
 
+    const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
+      const type = state.type ?? 'unknown';
+      setNetworkType(type);
+      if (!state.isConnected) return;
+      webRTCService.handleNetworkChange().catch(() => undefined);
+      signalingService.triggerIceRestart(callId);
+    });
+
     signalingService.onCallEnded(callId, () => {
       if (!didUnmount) {
         setStatus('ended');
@@ -76,6 +129,7 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
 
     return () => {
       didUnmount = true;
+      unsubscribeNetInfo();
       webRTCService.close();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,8 +152,29 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
   };
 
   const handleEndCall = (): void => {
+    const telemetry = webRTCService.getTelemetry();
+    const totalBytes = telemetry.bytesSent + telemetry.bytesReceived;
+    const tellyMb = totalBytes / (1024 * 1024);
+    const waMb = tellyMb * 2.8;
+    const success = status === 'connected' && duration >= 5;
+
+    signalingService.endCall(callId, {
+      durationMs: duration * 1000,
+      dataBytes: Math.round(totalBytes),
+      avgLatencyMs: telemetry.latencyMs,
+      packetLossPct: telemetry.packetLossPct,
+      success,
+      networkType,
+      iceRestartCount: webRTCService.getAdvancedStats().iceRestartCount,
+      relayUsed: webRTCService.getAdvancedStats().relayMode,
+      reconnectionEvents: webRTCService.getAdvancedStats().reconnectionEvents,
+    });
+
     webRTCService.close();
-    signalingService.endCall(callId);
+    Alert.alert(
+      'Call usage',
+      `This call used ${tellyMb.toFixed(2)} MB.\nWhatsApp estimate: ~${waMb.toFixed(2)} MB`,
+    );
     navigation.goBack();
   };
 
@@ -113,46 +188,62 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
   const handleToggleSpeaker = (): void => setIsSpeaker((s) => !s);
 
   const statusLabel =
-    status === 'ringing' ? '🔔 Ringing...'
-    : status === 'dialing' ? '📡 Dialing...'
-    : status === 'connected' ? formatDuration(duration)
-    : '📵 Call Ended';
+    status === 'ringing' ? 'Ringing...'
+    : status === 'dialing' ? 'Dialing...'
+    : status === 'connected' ? 'Connected'
+    : 'Call Ended';
+
+  const displayDuration = status === 'connected' ? formatDuration(duration) : statusLabel;
 
   return (
     <View style={styles.container}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{remoteUserId[0]?.toUpperCase() ?? '?'}</Text>
+      {/* Status bar at top */}
+      <View style={styles.statusBar}>
+        {status === 'connected' && (
+          <Text style={styles.networkStatus}>{networkQuality.toUpperCase()} • {bitrate / 1000} kbps</Text>
+        )}
+        {status !== 'connected' && status !== 'ended' && (
+          <Text style={styles.networkStatus}>{statusLabel}</Text>
+        )}
       </View>
-      <Text style={styles.userId}>{remoteUserId}</Text>
-      <Text style={styles.status}>{statusLabel}</Text>
-      <Text style={styles.dataLabel}>Ultra-low data · Opus DTX 16 kbps</Text>
 
-      <View style={styles.controls}>
-        <TouchableOpacity
-          style={[styles.btn, isMuted && styles.btnActive]}
-          onPress={handleToggleMute}
-          accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
-        >
-          <Text style={styles.btnIcon}>{isMuted ? '🔇' : '🎤'}</Text>
-          <Text style={styles.btnLabel}>Mute</Text>
-        </TouchableOpacity>
+      {/* Caller info and timer - centered */}
+      <View style={styles.info}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{remoteUserId[0]?.toUpperCase() ?? '?'}</Text>
+        </View>
+        <Text style={styles.userId}>{remoteUserId}</Text>
+        <Text style={styles.timer}>{displayDuration}</Text>
+      </View>
+
+      {/* Controls at bottom */}
+      <View style={styles.controlsContainer}>
+        <View style={styles.topControls}>
+          <TouchableOpacity
+            style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
+            onPress={handleToggleMute}
+            accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
+          >
+            <Text style={styles.controlIcon}>{isMuted ? '🔇' : '🎤'}</Text>
+            <Text style={styles.controlLabel}>Mute</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.controlBtn, isSpeaker && styles.controlBtnActive]}
+            onPress={handleToggleSpeaker}
+            accessibilityLabel={isSpeaker ? 'Switch to earpiece' : 'Switch to speaker'}
+          >
+            <Text style={styles.controlIcon}>{isSpeaker ? '🔊' : '🔈'}</Text>
+            <Text style={styles.controlLabel}>Speaker</Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
-          style={[styles.btn, styles.endBtn]}
+          style={styles.endCallBtn}
           onPress={handleEndCall}
           accessibilityLabel="End call"
         >
-          <Text style={styles.btnIcon}>📵</Text>
-          <Text style={styles.btnLabel}>End</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btn, isSpeaker && styles.btnActive]}
-          onPress={handleToggleSpeaker}
-          accessibilityLabel={isSpeaker ? 'Switch to earpiece' : 'Switch to speaker'}
-        >
-          <Text style={styles.btnIcon}>{isSpeaker ? '🔊' : '🔈'}</Text>
-          <Text style={styles.btnLabel}>Speaker</Text>
+          <Text style={styles.endCallIcon}>📞</Text>
         </TouchableOpacity>
       </View>
 
@@ -167,32 +258,114 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1A237E', alignItems: 'center', justifyContent: 'center' },
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    justifyContent: 'space-between',
+    paddingBottom: 20,
+  },
+  statusBar: {
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(82, 212, 240, 0.1)',
+  },
+  networkStatus: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    letterSpacing: 0.3,
+  },
+  info: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#3949AB',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: theme.colors.surfaceAlt,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(82, 212, 240, 0.5)',
   },
-  avatarText: { color: '#FFF', fontSize: 40, fontWeight: '700' },
-  userId: { color: '#FFF', fontSize: 22, fontWeight: '600', marginBottom: 8 },
-  status: { color: '#90CAF9', fontSize: 16, marginBottom: 4 },
-  dataLabel: { color: '#42A5F5', fontSize: 12, marginBottom: 60 },
-  controls: { flexDirection: 'row', gap: 24 },
-  btn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#3949AB',
+  avatarText: {
+    color: theme.colors.text,
+    fontSize: 56,
+    fontWeight: '700',
+  },
+  userId: {
+    color: theme.colors.text,
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 12,
+    letterSpacing: -0.5,
+  },
+  timer: {
+    color: theme.colors.accent,
+    fontSize: 36,
+    fontWeight: '600',
+    letterSpacing: -0.5,
+  },
+  controlsContainer: {
+    paddingHorizontal: 24,
+    gap: 20,
+  },
+  topControls: {
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'center',
+  },
+  controlBtn: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: theme.colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(82, 212, 240, 0.3)',
   },
-  btnActive: { backgroundColor: '#283593' },
-  endBtn: { backgroundColor: '#C62828' },
-  btnIcon: { fontSize: 24 },
-  btnLabel: { color: '#FFF', fontSize: 11, marginTop: 2 },
-  devLabel: { position: 'absolute', bottom: 20, color: '#546E7A', fontSize: 11 },
+  controlBtnActive: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderColor: 'rgba(82, 212, 240, 0.6)',
+  },
+  controlIcon: {
+    fontSize: 28,
+  },
+  controlLabel: {
+    color: theme.colors.text,
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  endCallBtn: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: theme.colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(247, 121, 113, 0.8)',
+    alignSelf: 'center',
+    shadowColor: theme.colors.danger,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  endCallIcon: {
+    fontSize: 40,
+    transform: [{ rotate: '225deg' }],
+  },
+  devLabel: {
+    position: 'absolute',
+    bottom: 20,
+    color: theme.colors.muted,
+    fontSize: 11,
+  },
 });

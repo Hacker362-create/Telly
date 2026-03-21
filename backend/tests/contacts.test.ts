@@ -16,17 +16,24 @@ function token(id = 'searcher-user'): string {
 // Expose the mock function via a module-level getter instead.
 
 jest.mock('@prisma/client', () => {
-  const findMany = jest.fn();
+  const userFindMany = jest.fn();
+  const tellyIDFindMany = jest.fn();
   return {
     PrismaClient: jest.fn().mockImplementation(() => ({
-      user: { findMany },
+      user: { findMany: userFindMany },
+      tellyID: { findMany: tellyIDFindMany },
     })),
-    __findMany: findMany,
+    __userFindMany: userFindMany,
+    __tellyIDFindMany: tellyIDFindMany,
   };
 });
 
-function getMockFindMany(): jest.Mock {
-  return (jest.requireMock('@prisma/client') as { __findMany: jest.Mock }).__findMany;
+function getMockUserFindMany(): jest.Mock {
+  return (jest.requireMock('@prisma/client') as { __userFindMany: jest.Mock }).__userFindMany;
+}
+
+function getMockTellyIDFindMany(): jest.Mock {
+  return (jest.requireMock('@prisma/client') as { __tellyIDFindMany: jest.Mock }).__tellyIDFindMany;
 }
 
 function makeApp(): Express {
@@ -46,7 +53,8 @@ describe('GET /contacts/search', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    getMockFindMany().mockResolvedValue(SAMPLE_USERS);
+    getMockTellyIDFindMany().mockResolvedValue([]);
+    getMockUserFindMany().mockResolvedValue(SAMPLE_USERS);
   });
 
   it('returns 401 without token', async () => {
@@ -80,7 +88,7 @@ describe('GET /contacts/search', () => {
   });
 
   it('excludes password hash from results', async () => {
-    getMockFindMany().mockResolvedValue([{ id: 'user-a', name: 'Alice', phoneNumber: '+254711000001' }]);
+    getMockUserFindMany().mockResolvedValue([{ id: 'user-a', name: 'Alice', phoneNumber: '+254711000001', tellyId: null }]);
     const res = await request(app)
       .get('/contacts/search?q=Alice')
       .set('Authorization', `Bearer ${token()}`);
@@ -91,7 +99,7 @@ describe('GET /contacts/search', () => {
     await request(app)
       .get('/contacts/search?q=bo')
       .set('Authorization', `Bearer ${token('me-user')}`);
-    const callArg = getMockFindMany().mock.calls[0][0];
+    const callArg = getMockUserFindMany().mock.calls[0][0];
     expect(callArg.where.AND[0]).toMatchObject({ id: { not: 'me-user' } });
   });
 });

@@ -16,7 +16,13 @@ import {
   activeCallsGauge,
   callsStartedCounter,
   callsEndedCounter,
+  callsConnectedCounter,
+  callFailuresCounter,
   callDurationHistogram,
+  callSetupLatencyHistogram,
+  callPacketLossHistogram,
+  callLatencyHistogram,
+  callDataBytesCounter,
   onlineUsersGauge,
   messagesSentCounter,
 } from '../metrics/registry';
@@ -25,6 +31,7 @@ import {
   clearPresence,
   PresenceStatus,
 } from '../presence/PresenceStore';
+import { getRedisClient } from './Gatekeeper';
 
 const prisma = new PrismaClient();
 
@@ -34,9 +41,51 @@ export interface CallSession {
   calleeId: string;
   roomId: string;
   startedAt: Date;
+  acceptedAt?: Date;
+  relayMode?: boolean;
+}
+
+interface EndCallStats {
+  durationMs?: number;
+  dataBytes?: number;
+  avgLatencyMs?: number;
+  packetLossPct?: number;
+  success?: boolean;
+  networkType?: string;
+  iceRestartCount?: number;
+  relayUsed?: boolean;
+  reconnectionEvents?: number;
 }
 
 const activeCalls = new Map<string, CallSession>();
+const pendingCallQueue = new Map<string, Array<{ callId: string; callerId: string; offer?: RTCSessionDescriptionInit }>>();
+let signalingIo: Server | null = null;
+
+const decodePayload = (payload: unknown): Record<string, unknown> => {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (Buffer.isBuffer(payload)) {
+    try {
+      return JSON.parse(payload.toString('utf8')) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (payload instanceof Uint8Array) {
+    try {
+      return JSON.parse(Buffer.from(payload).toString('utf8')) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (payload && typeof payload === 'object') return payload as Record<string, unknown>;
+  return {};
+};
 
 export function createSignalingServer(httpServer: http.Server): Server {
   const io = new Server(httpServer, {
@@ -52,6 +101,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
 
   // Apply subscription gatekeeper to all connections
   io.use(gatekeeperMiddleware);
+  signalingIo = io;
 
   io.on('connection', (socket: Socket) => {
     const { userId, fcmToken } = socket.handshake.auth as { userId: string; fcmToken?: string };
@@ -74,6 +124,12 @@ export function createSignalingServer(httpServer: http.Server): Server {
       );
     }
 
+    if (socket.data.subscriptionInGrace) {
+      socket.emit('subscription:grace', {
+        message: 'Subscription grace period active. Renew to avoid call blocking.',
+      });
+    }
+
     // Allow the client to update its own status (busy, away, online)
     socket.on('presence:set', ({ status }: { status: PresenceStatus }) => {
       const allowed: PresenceStatus[] = ['online', 'busy', 'away'];
@@ -91,9 +147,26 @@ export function createSignalingServer(httpServer: http.Server): Server {
       );
     });
 
+    socket.on('call:warmup', ({ calleeId }: { calleeId: string }) => {
+      io.to(`user:${calleeId}`).emit('call:warmup:ping', { callerId: userId, at: Date.now() });
+      socket.emit('call:warmup:ready', { calleeId, at: Date.now() });
+    });
+
     // Initiate an outgoing call
-    socket.on('call:initiate', async ({ calleeId, offer }: { calleeId: string; offer: RTCSessionDescriptionInit }) => {
-      const callId = `call_${Date.now()}_${userId}`;
+    socket.on('call:initiate', async ({ calleeId, callId: inboundCallId, offer }: { calleeId: string; callId?: string; offer?: RTCSessionDescriptionInit }) => {
+      const callId = inboundCallId ?? `call_${Date.now()}_${userId}`;
+      const calleeBusy = Array.from(activeCalls.values()).some(
+        (c) => c.calleeId === calleeId || c.callerId === calleeId,
+      );
+
+      if (calleeBusy) {
+        const queue = pendingCallQueue.get(calleeId) ?? [];
+        queue.push({ callId, callerId: userId, offer });
+        pendingCallQueue.set(calleeId, queue);
+        socket.emit('call:queued', { callId, etaMs: 2500 + (queue.length * 1000) });
+        return;
+      }
+
       const roomId = `room_${callId}`;
       const startedAt = new Date();
       const session: CallSession = {
@@ -133,6 +206,14 @@ export function createSignalingServer(httpServer: http.Server): Server {
       }).catch((err) => console.error('[Signaling] Push failed:', err));
     });
 
+    // Optional compact payload for very weak networks (binary frames)
+    socket.on('call:offer:bin', ({ callId, payload }: { callId: string; payload: unknown }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      const decoded = decodePayload(payload);
+      io.to(`user:${session.calleeId}`).emit('call:offer', { callId, offer: decoded.offer as RTCSessionDescriptionInit });
+    });
+
     // Relay an SDP offer to the callee after call initiation
     socket.on('call:offer', ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
       const session = activeCalls.get(callId);
@@ -145,7 +226,21 @@ export function createSignalingServer(httpServer: http.Server): Server {
       const session = activeCalls.get(callId);
       if (!session) return;
       socket.join(session.roomId);
+      session.acceptedAt = new Date();
+      callsConnectedCounter.inc();
+      callSetupLatencyHistogram.observe(session.acceptedAt.getTime() - session.startedAt.getTime());
       io.to(`user:${session.callerId}`).emit('call:accepted', { callId, answer });
+    });
+
+    socket.on('call:accept:bin', ({ callId, payload }: { callId: string; payload: unknown }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      socket.join(session.roomId);
+      session.acceptedAt = new Date();
+      callsConnectedCounter.inc();
+      callSetupLatencyHistogram.observe(session.acceptedAt.getTime() - session.startedAt.getTime());
+      const decoded = decodePayload(payload);
+      io.to(`user:${session.callerId}`).emit('call:accepted', { callId, answer: decoded.answer as RTCSessionDescriptionInit });
     });
 
     // Relay ICE candidates for NAT traversal
@@ -154,6 +249,65 @@ export function createSignalingServer(httpServer: http.Server): Server {
       if (!session) return;
       const targetId = session.callerId === userId ? session.calleeId : session.callerId;
       io.to(`user:${targetId}`).emit('ice:candidate', { callId, candidate });
+    });
+
+    socket.on('ice:candidate:bin', ({ callId, payload }: { callId: string; payload: unknown }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      const decoded = decodePayload(payload);
+      const targetId = session.callerId === userId ? session.calleeId : session.callerId;
+      io.to(`user:${targetId}`).emit('ice:candidate', { callId, candidate: decoded.candidate as RTCIceCandidateInit });
+    });
+
+    socket.on('call:relay-request', ({ callId }: { callId: string }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+      session.relayMode = true;
+      io.to(session.roomId).emit('call:relay-mode', { callId, relay: true });
+    });
+
+    socket.on('call:reliability', async ({
+      callId,
+      latencyMs,
+      packetLossPct,
+      dataBytes,
+      networkType,
+      iceRestartCount,
+      relayUsed,
+      reconnectionEvents,
+    }: {
+      callId: string;
+      latencyMs: number;
+      packetLossPct: number;
+      dataBytes: number;
+      networkType?: string;
+      iceRestartCount?: number;
+      relayUsed?: boolean;
+      reconnectionEvents?: number;
+    }) => {
+      const session = activeCalls.get(callId);
+      if (!session) return;
+
+      callLatencyHistogram.observe(Math.max(0, latencyMs));
+      callPacketLossHistogram.observe(Math.max(0, packetLossPct));
+
+      const redis = getRedisClient();
+      const key = `call:reliability:${callId}`;
+      await redis.setex(
+        key,
+        300,
+        JSON.stringify({
+          callId,
+          latencyMs,
+          packetLossPct,
+          dataBytes,
+          networkType: networkType ?? 'unknown',
+          iceRestartCount: iceRestartCount ?? 0,
+          relayUsed: Boolean(relayUsed),
+          reconnectionEvents: reconnectionEvents ?? 0,
+          updatedAt: Date.now(),
+        }),
+      );
     });
 
     // ICE restart for seamless network switching
@@ -165,23 +319,98 @@ export function createSignalingServer(httpServer: http.Server): Server {
     });
 
     // End a call — update the CallLog with duration
-    socket.on('call:end', ({ callId }: { callId: string }) => {
+    socket.on('call:end', ({ callId, stats }: { callId: string; stats?: EndCallStats }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
 
       const endedAt = new Date();
-      const durationMs = endedAt.getTime() - session.startedAt.getTime();
+      const durationMs = stats?.durationMs ?? (endedAt.getTime() - session.startedAt.getTime());
+      const dataBytes = Math.max(0, Math.round(stats?.dataBytes ?? 0));
+      const packetLossPct = Math.max(0, stats?.packetLossPct ?? 0);
+      const avgLatencyMs = Math.max(0, stats?.avgLatencyMs ?? 0);
+      const success = stats?.success ?? durationMs >= 5000;
 
       io.to(session.roomId).emit('call:ended', { callId, durationMs });
       activeCalls.delete(callId);
       activeCallsGauge.dec();
       callsEndedCounter.inc();
       callDurationHistogram.observe(durationMs);
+      callDataBytesCounter.inc(dataBytes);
+      callPacketLossHistogram.observe(packetLossPct);
+      callLatencyHistogram.observe(avgLatencyMs);
+
+      if (!success) {
+        callFailuresCounter.inc();
+      }
 
       prisma.callLog.updateMany({
         where: { callerId: session.callerId, calleeId: session.calleeId, endedAt: null },
-        data: { endedAt, durationMs },
+        data: {
+          endedAt,
+          durationMs,
+          dataBytes,
+          recordingUrl: stats?.relayUsed ? 'relay:turn' : undefined,
+        },
       }).catch((err) => console.error('[Signaling] CallLog update failed:', err));
+
+      (prisma as unknown as {
+        callAnalytics: { upsert: (args: unknown) => Promise<unknown> }
+      }).callAnalytics.upsert({
+        where: { callId },
+        update: {
+          endedAt,
+          durationMs,
+          dataBytes,
+          avgLatencyMs,
+          packetLossPct,
+          networkType: stats?.networkType ?? 'unknown',
+          iceRestartCount: stats?.iceRestartCount ?? 0,
+          relayUsed: Boolean(stats?.relayUsed || session.relayMode),
+          reconnectionEvents: stats?.reconnectionEvents ?? 0,
+          success,
+        },
+        create: {
+          callId,
+          callerId: session.callerId,
+          calleeId: session.calleeId,
+          startedAt: session.startedAt,
+          endedAt,
+          durationMs,
+          dataBytes,
+          avgLatencyMs,
+          packetLossPct,
+          networkType: stats?.networkType ?? 'unknown',
+          iceRestartCount: stats?.iceRestartCount ?? 0,
+          relayUsed: Boolean(stats?.relayUsed || session.relayMode),
+          reconnectionEvents: stats?.reconnectionEvents ?? 0,
+          success,
+        },
+      }).catch((err: unknown) => console.error('[Signaling] Call analytics upsert failed:', err));
+
+      const redis = getRedisClient();
+      redis.setex(
+        `call:analytics:${callId}`,
+        604800,
+        JSON.stringify({
+          callId,
+          callerId: session.callerId,
+          calleeId: session.calleeId,
+          networkType: stats?.networkType ?? 'unknown',
+          iceRestartCount: stats?.iceRestartCount ?? 0,
+          relayUsed: Boolean(stats?.relayUsed || session.relayMode),
+          reconnectionEvents: stats?.reconnectionEvents ?? 0,
+          packetLossPct,
+          avgLatencyMs,
+          dataBytes,
+          success,
+          endedAt: endedAt.toISOString(),
+        }),
+      ).catch(() => undefined);
+
+      const nextQueued = pendingCallQueue.get(session.calleeId)?.shift();
+      if (nextQueued) {
+        io.to(`user:${nextQueued.callerId}`).emit('call:queue-ready', { callId: nextQueued.callId });
+      }
     });
 
     // Real-time message delivery
@@ -224,6 +453,27 @@ export function createSignalingServer(httpServer: http.Server): Server {
   });
 
   return io;
+}
+
+export function terminateActiveCall(callId: string, reason = 'terminated'): boolean {
+  const session = activeCalls.get(callId);
+  if (!session) return false;
+
+  const endedAt = new Date();
+  const durationMs = Math.max(0, endedAt.getTime() - session.startedAt.getTime());
+  signalingIo?.to(session.roomId).emit('call:ended', { callId, durationMs, reason });
+
+  activeCalls.delete(callId);
+  activeCallsGauge.dec();
+  callsEndedCounter.inc();
+  callDurationHistogram.observe(durationMs);
+
+  prisma.callLog.updateMany({
+    where: { callerId: session.callerId, calleeId: session.calleeId, endedAt: null },
+    data: { endedAt, durationMs },
+  }).catch(() => undefined);
+
+  return true;
 }
 
 export { activeCalls };

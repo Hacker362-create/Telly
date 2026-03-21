@@ -113,10 +113,16 @@ function makeMockRedis() {
 
 describe('push notification service', () => {
   let mockRedis: ReturnType<typeof makeMockRedis>;
+  let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
     mockRedis = makeMockRedis();
     setPushRedisClient(mockRedis);
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
   });
 
   it('stores and retrieves a device token', async () => {

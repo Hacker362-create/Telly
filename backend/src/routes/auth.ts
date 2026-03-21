@@ -5,13 +5,28 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { sign } from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
 import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
+import { createTellyID, getEffectiveTellyID } from '../services/TellyIDService';
 
 const router = Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET ?? 'telly-secret-change-in-production';
+const DEFAULT_ADMIN_EMAIL = 'jerryphisael@gmail.com';
+
+function configuredAdminEmails(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS?.trim();
+  const emails = (raw && raw.length > 0 ? raw : DEFAULT_ADMIN_EMAIL)
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(emails);
+}
+
+function isConfiguredAdminEmail(email: string): boolean {
+  return configuredAdminEmails().has(email.trim().toLowerCase());
+}
 
 /** 5 attempts per 15 minutes per IP — protects register and login endpoints. */
 const authLimiter = rateLimit({
@@ -55,27 +70,50 @@ router.post('/register', authLimiter, async (req: Request, res: Response): Promi
     return;
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = email.trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     res.status(409).json({ error: 'Email already registered' });
     return;
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
-    data: { name, email, passwordHash, phoneNumber, isActive: false, subscriptionExpiry: new Date() },
-    select: { id: true, name: true, email: true, phoneNumber: true },
+  const user = await (prisma as unknown as {
+    user: { create: (args: unknown) => Promise<{ id: string; name: string; email: string; phoneNumber: string; isAdmin?: boolean }> }
+  }).user.create({
+    data: {
+      name,
+      email: normalizedEmail,
+      passwordHash,
+      phoneNumber,
+      isAdmin: isConfiguredAdminEmail(normalizedEmail),
+      isActive: false,
+      subscriptionExpiry: new Date(),
+    },
+    select: { id: true, name: true, email: true, phoneNumber: true, isAdmin: true },
   });
 
-  const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-  res.status(201).json({ user, token });
+  // Auto-generate Telly ID for new user
+  let tellyId: string | null = null;
+  try {
+    tellyId = await createTellyID(user.id, user.email);
+  } catch (error) {
+    console.error('Failed to create Telly ID during signup:', error);
+    // Continue signup flow even if Telly ID creation fails
+  }
+
+  const token = sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
+  res.status(201).json({ user, token, tellyId });
 });
 
 // POST /auth/login
 router.post('/login', authLimiter, async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body as { email: string; password: string };
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await (prisma as unknown as {
+    user: { findUnique: (args: unknown) => Promise<{ id: string; name: string; email: string; phoneNumber: string; passwordHash: string; isAdmin?: boolean } | null> }
+  }).user.findUnique({ where: { email: normalizedEmail } });
   if (!user) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;
@@ -87,22 +125,47 @@ router.post('/login', authLimiter, async (req: Request, res: Response): Promise<
     return;
   }
 
-  const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
+  let isAdmin = user.isAdmin;
+  if (!isAdmin && isConfiguredAdminEmail(user.email)) {
+    await (prisma as unknown as {
+      user: { update: (args: unknown) => Promise<unknown> }
+    }).user.update({
+      where: { id: user.id },
+      data: { isAdmin: true },
+    });
+    isAdmin = true;
+  }
+
+  let tellyId: string | null = null;
+  try {
+    tellyId = await getEffectiveTellyID(user.id);
+    if (!tellyId) {
+      tellyId = await createTellyID(user.id, user.email);
+    }
+  } catch (error) {
+    console.error('Failed to resolve/create Telly ID during login:', error);
+  }
+
+  const token = sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
   res.json({
-    user: { id: user.id, name: user.name, email: user.email, phoneNumber: user.phoneNumber },
+    user: { id: user.id, name: user.name, email: user.email, phoneNumber: user.phoneNumber, isAdmin },
     token,
+    tellyId,
   });
 });
 
 // GET /auth/me — return the authenticated user's profile
 router.get('/me', apiLimiter, requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
-  const user = await prisma.user.findUnique({
+  const user = await (prisma as unknown as {
+    user: { findUnique: (args: unknown) => Promise<Record<string, unknown> | null> }
+  }).user.findUnique({
     where: { id: req.userId },
     select: {
       id: true,
       name: true,
       email: true,
       phoneNumber: true,
+      isAdmin: true,
       isActive: true,
       subscriptionExpiry: true,
       createdAt: true,

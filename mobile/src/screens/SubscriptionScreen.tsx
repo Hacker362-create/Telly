@@ -9,8 +9,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   Alert,
@@ -20,6 +18,11 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { subscriptionService } from '../services/SubscriptionService';
+import { theme } from '../theme';
+import AppCard from '../components/AppCard';
+import AppButton from '../components/AppButton';
+import AppInput from '../components/AppInput';
+import FadeInView from '../components/FadeInView';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Subscription'>;
@@ -96,19 +99,19 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
 
   if (paymentState === 'success') {
     return (
-      <View style={[styles.container, styles.center]}>
+      <FadeInView style={[styles.container, styles.center]}>
         <Text style={styles.successIcon}>🎉</Text>
         <Text style={styles.successTitle}>You're subscribed!</Text>
         <Text style={styles.successSubtitle}>
           Telly is now active for 30 days. Enjoy ultra-low data calls.
         </Text>
-        <TouchableOpacity
-          style={styles.button}
+        <AppButton
+          label="Start Calling"
           onPress={() => navigation.replace('Home')}
-        >
-          <Text style={styles.buttonText}>Start Calling</Text>
-        </TouchableOpacity>
-      </View>
+          variant="success"
+          style={styles.successButton}
+        />
+      </FadeInView>
     );
   }
 
@@ -117,7 +120,9 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.center}>
+      <View style={styles.bgOrbTop} />
+      <View style={styles.bgOrbBottom} />
+      <FadeInView style={styles.center}>
         <Text style={styles.planIcon}>📱</Text>
         <Text style={styles.planTitle}>Telly — KES 500 / month</Text>
         <Text style={styles.planFeatures}>
@@ -126,14 +131,13 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
           ✓ Works on 2G / edge networks{'\n'}
           ✓ Swahili/English AI assistant
         </Text>
-      </View>
+      </FadeInView>
 
-      <View style={styles.form}>
-        <Text style={styles.label}>Safaricom Phone Number</Text>
-        <TextInput
-          style={styles.input}
+      <FadeInView delay={90}>
+      <AppCard>
+        <AppInput
+          label="Safaricom Phone Number"
           placeholder="+254712345678"
-          placeholderTextColor="#9E9E9E"
           keyboardType="phone-pad"
           value={phone}
           onChangeText={setPhone}
@@ -142,7 +146,7 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
 
         {paymentState === 'polling' && (
           <View style={styles.pollingBox}>
-            <ActivityIndicator color="#1976D2" style={{ marginRight: 10 }} />
+            <ActivityIndicator color={theme.colors.accent} style={{ marginRight: 10 }} />
             <Text style={styles.pollingText}>
               Check your phone for the M-Pesa PIN prompt…
             </Text>
@@ -153,90 +157,82 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
           <Text style={styles.refText}>Ref: {checkoutRequestId}</Text>
         )}
 
-        <TouchableOpacity
-          style={[
-            styles.button,
-            (paymentState === 'sending' || paymentState === 'polling') && styles.buttonDisabled,
-          ]}
+        <AppButton
+          style={styles.buttonSpacing}
+          label={paymentState === 'polling' ? 'Waiting for payment...' : 'Pay KES 500 via M-Pesa'}
           onPress={handlePay}
+          loading={paymentState === 'sending'}
           disabled={paymentState === 'sending' || paymentState === 'polling'}
-        >
-          {paymentState === 'sending' ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.buttonText}>
-              {paymentState === 'polling' ? 'Waiting for payment…' : 'Pay KES 500 via M-Pesa'}
-            </Text>
-          )}
-        </TouchableOpacity>
+          variant="success"
+        />
 
-        <TouchableOpacity
+        <AppButton
           style={styles.cancelButton}
+          label="Cancel"
+          variant="ghost"
           onPress={() => {
             stopPolling();
             navigation.goBack();
           }}
-        >
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
+        />
+      </AppCard>
+      </FadeInView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5', padding: 24 },
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: 24 },
+  bgOrbTop: {
+    position: 'absolute',
+    top: -90,
+    left: -80,
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: 'rgba(82, 212, 240, 0.15)',
+  },
+  bgOrbBottom: {
+    position: 'absolute',
+    bottom: -130,
+    right: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: 'rgba(43, 208, 168, 0.1)',
+  },
   center: { alignItems: 'center', marginBottom: 24 },
   planIcon: { fontSize: 52, marginTop: 20 },
-  planTitle: { fontSize: 20, fontWeight: '700', color: '#1A237E', marginTop: 12, marginBottom: 12 },
+  planTitle: { fontSize: 20, fontWeight: '800', color: theme.colors.text, marginTop: 12, marginBottom: 12 },
   planFeatures: {
-    color: '#424242',
+    color: theme.colors.text,
     fontSize: 14,
     lineHeight: 24,
     textAlign: 'center',
-    backgroundColor: '#E3F2FD',
+    backgroundColor: 'rgba(82, 212, 240, 0.12)',
     padding: 16,
     borderRadius: 12,
-  },
-  form: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 24,
-    elevation: 2,
-  },
-  label: { color: '#424242', fontSize: 13, fontWeight: '600', marginBottom: 6 },
-  input: {
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#212121',
-    backgroundColor: '#FAFAFA',
-    marginBottom: 8,
+    borderColor: 'rgba(82, 212, 240, 0.3)',
   },
   pollingBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E3F2FD',
+    backgroundColor: 'rgba(82, 212, 240, 0.1)',
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(82, 212, 240, 0.25)',
   },
-  pollingText: { color: '#1565C0', fontSize: 13, flex: 1 },
-  refText: { color: '#9E9E9E', fontSize: 11, marginBottom: 8 },
-  button: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
+  pollingText: { color: theme.colors.text, fontSize: 13, flex: 1 },
+  refText: { color: theme.colors.muted, fontSize: 11, marginBottom: 8 },
+  buttonSpacing: {
     marginTop: 8,
   },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  cancelButton: { alignItems: 'center', marginTop: 14 },
-  cancelText: { color: '#757575', fontSize: 14 },
+  cancelButton: { marginTop: 12 },
   successIcon: { fontSize: 72 },
-  successTitle: { fontSize: 26, fontWeight: '700', color: '#2E7D32', marginTop: 16 },
-  successSubtitle: { color: '#424242', fontSize: 14, textAlign: 'center', marginTop: 8, marginBottom: 32 },
+  successTitle: { fontSize: 26, fontWeight: '800', color: theme.colors.success, marginTop: 16 },
+  successSubtitle: { color: theme.colors.text, fontSize: 14, textAlign: 'center', marginTop: 8, marginBottom: 32 },
+  successButton: { width: '100%' },
 });

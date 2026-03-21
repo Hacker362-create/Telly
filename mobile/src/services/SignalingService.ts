@@ -4,13 +4,30 @@
 
 import { io, Socket } from 'socket.io-client';
 
-const SIGNALING_URL = process.env.SIGNALING_URL ?? 'https://api.telly.co.ke';
+const SIGNALING_URL = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SIGNALING_URL
+  ?? 'https://api.telly.co.ke';
 
 type IncomingCallHandler = (callId: string, callerId: string) => void;
 type CallAcceptedHandler = (callId: string, answer?: object) => void;
 type CallEndedHandler = (callId: string) => void;
 type OfferHandler = (offer: object) => void;
 type IceCandidateHandler = (candidate: object) => void;
+type CallQueuedHandler = (etaMs: number) => void;
+type SubscriptionGraceHandler = (message: string) => void;
+type IceRestartHandler = () => void;
+type RelayModeHandler = () => void;
+
+export type CallEndStats = {
+  durationMs: number;
+  dataBytes: number;
+  avgLatencyMs: number;
+  packetLossPct: number;
+  success: boolean;
+  networkType?: string;
+  iceRestartCount?: number;
+  relayUsed?: boolean;
+  reconnectionEvents?: number;
+};
 
 class SignalingService {
   private socket: Socket | null = null;
@@ -19,6 +36,21 @@ class SignalingService {
   private callEndedHandlers = new Map<string, CallEndedHandler>();
   private offerHandlers = new Map<string, OfferHandler>();
   private iceCandidateHandlers = new Map<string, IceCandidateHandler>();
+  private callQueuedHandlers = new Map<string, CallQueuedHandler>();
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private subscriptionGraceHandlers: SubscriptionGraceHandler[] = [];
+  private iceRestartHandlers = new Map<string, IceRestartHandler>();
+  private relayModeHandlers = new Map<string, RelayModeHandler>();
+
+  private encodePayload(payload: object): Uint8Array | object {
+    const Encoder = (globalThis as { TextEncoder?: new () => { encode: (v: string) => Uint8Array } }).TextEncoder;
+    if (!Encoder) return payload;
+    try {
+      return new Encoder().encode(JSON.stringify(payload));
+    } catch {
+      return payload;
+    }
+  }
 
   /**
    * Connect to the signaling server.
@@ -34,7 +66,9 @@ class SignalingService {
       auth: { userId, token, fcmToken },
       transports: ['websocket'],
       reconnection: true,
-      reconnectionDelay: 1000,
+      reconnectionDelay: 300,
+      reconnectionDelayMax: 900,
+      timeout: 5000,
     });
 
     this.socket.on('call:incoming', ({ callId, callerId, offer }: { callId: string; callerId: string; offer?: object }) => {
@@ -53,10 +87,33 @@ class SignalingService {
       this.callEndedHandlers.delete(callId);
       this.offerHandlers.delete(callId);
       this.iceCandidateHandlers.delete(callId);
+      this.callQueuedHandlers.delete(callId);
+      this.iceRestartHandlers.delete(callId);
+      this.relayModeHandlers.delete(callId);
     });
+
+    this.socket.on('call:queued', ({ callId, etaMs }: { callId: string; etaMs: number }) => {
+      this.callQueuedHandlers.get(callId)?.(etaMs);
+    });
+
+    this.socket.on('subscription:grace', ({ message }: { message: string }) => {
+      this.subscriptionGraceHandlers.forEach((h) => h(message));
+    });
+
+    this.heartbeat = setInterval(() => {
+      this.socket?.emit('presence:heartbeat');
+    }, 15000);
 
     this.socket.on('ice:candidate', ({ callId, candidate }: { callId: string; candidate: object }) => {
       this.iceCandidateHandlers.get(callId)?.(candidate);
+    });
+
+    this.socket.on('ice:restart', ({ callId }: { callId: string }) => {
+      this.iceRestartHandlers.get(callId)?.();
+    });
+
+    this.socket.on('call:relay-mode', ({ callId, relay }: { callId: string; relay: boolean }) => {
+      if (relay) this.relayModeHandlers.get(callId)?.();
     });
   }
 
@@ -69,6 +126,14 @@ class SignalingService {
     this.callEndedHandlers.clear();
     this.offerHandlers.clear();
     this.iceCandidateHandlers.clear();
+    this.callQueuedHandlers.clear();
+    this.iceRestartHandlers.clear();
+    this.relayModeHandlers.clear();
+    this.subscriptionGraceHandlers = [];
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
   }
 
   // ── Call initiation ────────────────────────────────────────────────────────
@@ -80,6 +145,10 @@ class SignalingService {
     return callId;
   }
 
+  warmupCall(calleeId: string): void {
+    this.socket?.emit('call:warmup', { calleeId });
+  }
+
   /** Initiate a call and immediately include the SDP offer in the same event. */
   initiateCallWithOffer(calleeId: string, offer: object): string {
     const callId = `call_${Date.now()}`;
@@ -89,11 +158,21 @@ class SignalingService {
 
   /** Send the SDP offer for an already-initiated call (called after WebRTC offer is created). */
   sendOffer(callId: string, offer: object): void {
+    const payload = this.encodePayload({ offer });
+    if (payload instanceof Uint8Array) {
+      this.socket?.emit('call:offer:bin', { callId, payload });
+      return;
+    }
     this.socket?.emit('call:offer', { callId, offer });
   }
 
   /** Accept an incoming call with an SDP answer. */
   acceptCallWithAnswer(callId: string, answer: object): void {
+    const payload = this.encodePayload({ answer });
+    if (payload instanceof Uint8Array) {
+      this.socket?.emit('call:accept:bin', { callId, payload });
+      return;
+    }
     this.socket?.emit('call:accept', { callId, answer });
   }
 
@@ -102,12 +181,37 @@ class SignalingService {
     this.socket?.emit('call:accept', { callId, answer: {} });
   }
 
-  endCall(callId: string): void {
-    this.socket?.emit('call:end', { callId });
+  endCall(callId: string, stats?: CallEndStats): void {
+    this.socket?.emit('call:end', { callId, stats });
+  }
+
+  sendReliabilitySnapshot(callId: string, payload: {
+    latencyMs: number;
+    packetLossPct: number;
+    dataBytes: number;
+    networkType?: string;
+    iceRestartCount?: number;
+    relayUsed?: boolean;
+    reconnectionEvents?: number;
+  }): void {
+    this.socket?.emit('call:reliability', { callId, ...payload });
+  }
+
+  requestRelayFallback(callId: string): void {
+    this.socket?.emit('call:relay-request', { callId });
+  }
+
+  triggerIceRestart(callId: string): void {
+    this.socket?.emit('ice:restart', { callId });
   }
 
   /** Relay a local ICE candidate to the remote peer. */
   sendIceCandidate(callId: string, candidate: object): void {
+    const payload = this.encodePayload({ candidate });
+    if (payload instanceof Uint8Array) {
+      this.socket?.emit('ice:candidate:bin', { callId, payload });
+      return;
+    }
     this.socket?.emit('ice:candidate', { callId, candidate });
   }
 
@@ -133,6 +237,22 @@ class SignalingService {
   /** Register a handler for remote ICE candidates for a given call. */
   onIceCandidate(callId: string, handler: IceCandidateHandler): void {
     this.iceCandidateHandlers.set(callId, handler);
+  }
+
+  onCallQueued(callId: string, handler: CallQueuedHandler): void {
+    this.callQueuedHandlers.set(callId, handler);
+  }
+
+  onSubscriptionGrace(handler: SubscriptionGraceHandler): void {
+    this.subscriptionGraceHandlers.push(handler);
+  }
+
+  onIceRestart(callId: string, handler: IceRestartHandler): void {
+    this.iceRestartHandlers.set(callId, handler);
+  }
+
+  onRelayMode(callId: string, handler: RelayModeHandler): void {
+    this.relayModeHandlers.set(callId, handler);
   }
 }
 

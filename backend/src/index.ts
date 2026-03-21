@@ -18,9 +18,14 @@ import presenceRouter from './routes/presence';
 import messagesRouter from './routes/messages';
 import voicemailRouter from './routes/voicemail';
 import pushTokensRouter from './routes/push-tokens';
+import adminRouter from './routes/admin';
+import tellyIDRouter from './routes/telly-id';
 import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
+// Trust local/private reverse proxies (Docker, k8s ingress, cloud load balancers)
+// so middleware relying on client IP (e.g. rate limiting) works correctly.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -39,7 +44,9 @@ app.use('/presence', presenceRouter);
 app.use('/messages', messagesRouter);
 app.use('/voicemail', voicemailRouter);
 app.use('/push-tokens', pushTokensRouter);
+app.use('/admin', adminRouter);
 app.use('/metrics', metricsRouter);
+app.use('/telly-id', tellyIDRouter);
 
 const httpServer = http.createServer(app);
 createSignalingServer(httpServer);

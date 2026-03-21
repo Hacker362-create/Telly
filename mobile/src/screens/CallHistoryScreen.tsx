@@ -9,12 +9,15 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
-  TouchableOpacity,
   RefreshControl,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
+import { theme } from '../theme';
+import AppButton from '../components/AppButton';
+import AppCard from '../components/AppCard';
+import FadeInView from '../components/FadeInView';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CallHistory'>;
@@ -39,7 +42,8 @@ interface HistoryResponse {
   };
 }
 
-const API_URL = process.env.API_URL ?? 'https://api.telly.co.ke';
+const API_URL = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.API_URL
+  ?? 'https://api.telly.co.ke';
 const PAGE_SIZE = 20;
 
 async function fetchHistory(page: number): Promise<HistoryResponse> {
@@ -113,13 +117,14 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
     loadPage(page + 1, false);
   };
 
-  const renderItem = ({ item }: { item: CallLogEntry }): React.JSX.Element => {
+  const renderItem = ({ item, index }: { item: CallLogEntry; index: number }): React.JSX.Element => {
     const isOutgoing = item.callerId === userId;
     const remoteId = isOutgoing ? item.calleeId : item.callerId;
     const connected = item.endedAt !== null;
 
     return (
-      <View style={styles.row}>
+      <FadeInView delay={40 + (index * 25)}>
+      <AppCard style={styles.row}>
         {/* Direction icon */}
         <View style={[styles.dirIcon, isOutgoing ? styles.outIcon : styles.inIcon]}>
           <Text style={styles.dirText}>{isOutgoing ? '↗' : '↙'}</Text>
@@ -135,14 +140,15 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
 
         {/* Timestamp */}
         <Text style={styles.timestamp}>{formatDate(item.startedAt)}</Text>
-      </View>
+      </AppCard>
+      </FadeInView>
     );
   };
 
   if (loading && calls.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1A237E" />
+        <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     );
   }
@@ -151,9 +157,7 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity onPress={handleRefresh} style={styles.retryBtn}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
+        <AppButton label="Retry" onPress={handleRefresh} style={styles.retryBtn} />
       </View>
     );
   }
@@ -166,21 +170,19 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
       style={styles.list}
       contentContainerStyle={calls.length === 0 ? styles.emptyContainer : undefined}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#1A237E" />
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.accent} />
       }
       onEndReached={handleLoadMore}
       onEndReachedThreshold={0.3}
       ListEmptyComponent={
         <View style={styles.center}>
           <Text style={styles.emptyText}>No calls yet</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Home')} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Make your first call</Text>
-          </TouchableOpacity>
+          <AppButton label="Make your first call" onPress={() => navigation.navigate('Home')} style={styles.retryBtn} />
         </View>
       }
       ListFooterComponent={
         hasMore && !refreshing ? (
-          <ActivityIndicator size="small" color="#1A237E" style={styles.footer} />
+          <ActivityIndicator size="small" color={theme.colors.accent} style={styles.footer} />
         ) : null
       }
     />
@@ -188,17 +190,20 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
 }
 
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: '#F5F5F5' },
+  list: { flex: 1, backgroundColor: theme.colors.background },
   emptyContainer: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: theme.colors.background },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E0E0E0',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(82, 212, 240, 0.15)',
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: theme.radius.md,
+    borderColor: 'rgba(82, 212, 240, 0.18)',
   },
   dirIcon: {
     width: 36,
@@ -208,21 +213,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  outIcon: { backgroundColor: '#E3F2FD' },
-  inIcon: { backgroundColor: '#E8F5E9' },
+  outIcon: { backgroundColor: 'rgba(82, 212, 240, 0.2)' },
+  inIcon: { backgroundColor: 'rgba(43, 208, 168, 0.18)' },
   dirText: { fontSize: 18 },
   info: { flex: 1 },
-  remoteId: { fontSize: 15, fontWeight: '600', color: '#212121' },
-  meta: { fontSize: 12, color: '#757575', marginTop: 2 },
-  timestamp: { fontSize: 11, color: '#9E9E9E' },
+  remoteId: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+  meta: { fontSize: 12, color: theme.colors.muted, marginTop: 2 },
+  timestamp: { fontSize: 11, color: theme.colors.muted },
   footer: { padding: 16 },
-  emptyText: { fontSize: 16, color: '#9E9E9E', marginBottom: 16 },
-  errorText: { fontSize: 15, color: '#C62828', marginBottom: 16, textAlign: 'center' },
-  retryBtn: {
-    backgroundColor: '#1A237E',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryText: { color: '#FFF', fontWeight: '600' },
+  emptyText: { fontSize: 16, color: theme.colors.muted, marginBottom: 16 },
+  errorText: { fontSize: 15, color: theme.colors.danger, marginBottom: 16, textAlign: 'center' },
+  retryBtn: { width: 220 },
 });

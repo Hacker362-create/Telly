@@ -12,6 +12,20 @@ const prisma = new PrismaClient();
 
 const MAX_PAGE_SIZE = 50;
 const DEFAULT_PAGE_SIZE = 20;
+const MAX_ANALYTICS_DAYS = 90;
+const DEFAULT_ANALYTICS_DAYS = 30;
+
+type AnalyticsRow = {
+  success: boolean;
+  durationMs: number;
+  dataBytes: number;
+  avgLatencyMs: number;
+  packetLossPct: number;
+  relayUsed: boolean;
+  reconnectionEvents: number;
+  iceRestartCount: number;
+  networkType: string;
+};
 
 /**
  * GET /calls/history
@@ -69,6 +83,83 @@ router.get('/history', apiLimiter, requireAuth, async (req: AuthRequest, res: Re
       pages: total === 0 ? 0 : Math.ceil(total / limit),
       hasMore: page * limit < total,
     },
+  });
+});
+
+/**
+ * GET /calls/analytics/summary
+ * Returns reliability and network summary metrics for the authenticated user.
+ *
+ * Query params:
+ *   days – lookback window (default 30, max 90)
+ */
+router.get('/analytics/summary', apiLimiter, requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId as string;
+  const days = Math.min(
+    MAX_ANALYTICS_DAYS,
+    Math.max(1, parseInt(req.query.days as string ?? String(DEFAULT_ANALYTICS_DAYS), 10)),
+  );
+
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const rows = await (prisma as unknown as {
+    callAnalytics: { findMany: (args: unknown) => Promise<AnalyticsRow[]> }
+  }).callAnalytics.findMany({
+    where: {
+      OR: [{ callerId: userId }, { calleeId: userId }],
+      endedAt: { gte: since },
+    },
+    orderBy: { endedAt: 'desc' },
+    select: {
+      success: true,
+      durationMs: true,
+      dataBytes: true,
+      avgLatencyMs: true,
+      packetLossPct: true,
+      relayUsed: true,
+      reconnectionEvents: true,
+      iceRestartCount: true,
+      networkType: true,
+    },
+  });
+
+  const totalCalls = rows.length;
+  const successes = rows.filter((r: AnalyticsRow) => r.success).length;
+  const successRate = totalCalls > 0 ? (successes / totalCalls) * 100 : 100;
+
+  const totals = rows.reduce(
+    (acc: { durationMs: number; dataBytes: number; latency: number; loss: number; reconnections: number; iceRestarts: number; relayCalls: number }, r: AnalyticsRow) => {
+      acc.durationMs += r.durationMs;
+      acc.dataBytes += r.dataBytes;
+      acc.latency += r.avgLatencyMs;
+      acc.loss += r.packetLossPct;
+      acc.reconnections += r.reconnectionEvents;
+      acc.iceRestarts += r.iceRestartCount;
+      if (r.relayUsed) acc.relayCalls += 1;
+      return acc;
+    },
+    { durationMs: 0, dataBytes: 0, latency: 0, loss: 0, reconnections: 0, iceRestarts: 0, relayCalls: 0 },
+  );
+
+  const byNetworkType = rows.reduce<Record<string, number>>((acc: Record<string, number>, r: AnalyticsRow) => {
+    const key = r.networkType || 'unknown';
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  res.json({
+    windowDays: days,
+    totalCalls,
+    successRate: Number(successRate.toFixed(1)),
+    avgLatencyMs: totalCalls > 0 ? Math.round(totals.latency / totalCalls) : 0,
+    avgPacketLossPct: totalCalls > 0 ? Number((totals.loss / totalCalls).toFixed(2)) : 0,
+    relayRatePct: totalCalls > 0 ? Number(((totals.relayCalls / totalCalls) * 100).toFixed(1)) : 0,
+    totalDurationMinutes: Number((totals.durationMs / 60000).toFixed(1)),
+    totalDataMb: Number((totals.dataBytes / (1024 * 1024)).toFixed(2)),
+    totalReconnections: totals.reconnections,
+    totalIceRestarts: totals.iceRestarts,
+    byNetworkType,
   });
 });
 

@@ -9,6 +9,11 @@ import bcrypt from 'bcryptjs';
 import authRouter from '../src/routes/auth';
 import callsRouter from '../src/routes/calls';
 
+jest.mock('../src/services/TellyIDService', () => ({
+  createTellyID: jest.fn(async (userId: string) => `mock-${userId}`),
+  getEffectiveTellyID: jest.fn(async () => null),
+}));
+
 // ── Prisma mock ────────────────────────────────────────────────────────────────
 jest.mock('@prisma/client', () => {
   const users = new Map<string, Record<string, unknown>>();
@@ -32,6 +37,13 @@ jest.mock('@prisma/client', () => {
           return Object.fromEntries(
             Object.keys(select).filter((k) => select[k]).map((k) => [k, record[k]]),
           );
+        }),
+        update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const existing = users.get(where.id);
+          if (!existing) throw new Error('Not found');
+          const updated: Record<string, unknown> = { ...existing, ...data };
+          users.set(where.id, updated);
+          return updated;
         }),
       },
       callLog: {
@@ -99,6 +111,17 @@ describe('POST /auth/register', () => {
     expect(res.body.user).toMatchObject({ email: valid.email, name: valid.name });
   });
 
+  it('auto-grants admin to configured admin email', async () => {
+    const res = await request(app).post('/auth/register').send({
+      ...valid,
+      email: 'jerryphisael@gmail.com',
+      phoneNumber: '+254700123456',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.user.isAdmin).toBe(true);
+  });
+
   it('rejects duplicate email', async () => {
     // First registration goes through (or is already stored from the test above)
     // Second should conflict
@@ -130,6 +153,7 @@ describe('POST /auth/login', () => {
         email: credentials.email,
         passwordHash: hash,
         phoneNumber: '+254700000001',
+        isAdmin: false,
         isActive: false,
         subscriptionExpiry: new Date(),
       },
@@ -150,7 +174,7 @@ describe('POST /auth/login', () => {
     const res = await request(app).post('/auth/login').send(credentials);
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
-    expect(res.body.user).toMatchObject({ email: credentials.email });
+    expect(res.body.user).toMatchObject({ email: credentials.email, isAdmin: false });
   });
 });
 
@@ -169,6 +193,7 @@ describe('GET /auth/me', () => {
         email: 'me@example.com',
         passwordHash: 'hash',
         phoneNumber: '+254700000002',
+        isAdmin: false,
         isActive: true,
         subscriptionExpiry: new Date(Date.now() + 86400000),
       },
@@ -184,7 +209,7 @@ describe('GET /auth/me', () => {
     const token = makeToken('me-user');
     const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ id: 'me-user', email: 'me@example.com' });
+    expect(res.body).toMatchObject({ id: 'me-user', email: 'me@example.com', isAdmin: false });
   });
 
   it('returns 404 when userId in token has no user record', async () => {

@@ -21,6 +21,39 @@ const router = Router();
 // In production, this would be stored in Redis for multi-replica setups.
 const liveTransports = new Map<string, import('mediasoup/node/lib/types').WebRtcTransport>();
 
+function buildIceServers(): Array<{ urls: string | string[]; username?: string; credential?: string }> {
+  const stun = (
+    process.env.STUN_SERVERS
+    ?? 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302'
+  )
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const servers: Array<{ urls: string | string[]; username?: string; credential?: string }> =
+    stun.length > 0 ? [{ urls: stun }] : [];
+
+  const turnUrls = (process.env.TURN_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const turnUsername = process.env.TURN_USERNAME;
+  const turnCredential = process.env.TURN_CREDENTIAL;
+  if (turnUrls.length > 0 && turnUsername && turnCredential) {
+    servers.push({
+      urls: turnUrls,
+      username: turnUsername,
+      credential: turnCredential,
+    });
+  }
+
+  return servers;
+}
+
+router.get('/ice-servers', apiLimiter, requireAuth, (_req: AuthRequest, res: Response): void => {
+  res.json({
+    iceServers: buildIceServers(),
+    relayRecommended: process.env.TURN_ENFORCE_RELAY === 'true',
+  });
+});
+
 // ── GET /media/rtp-capabilities ───────────────────────────────────────────────
 // Returns the router's RTP capabilities so the client can instantiate a
 // mediasoup-client Device and know which codecs are supported.

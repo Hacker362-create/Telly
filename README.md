@@ -58,10 +58,11 @@ npm start                   # starts on http://localhost:3000
 | **`npm install` fails** | Check you have internet access; on Windows make sure [Node.js LTS](https://nodejs.org) is installed |
 | **Database errors on first run** | Delete `backend/dev.db` and re-run `npm run db:setup` |
 
-> **Docker (backend + Redis + Prometheus + Grafana):**
+> **Docker (backend + Redis + TURN + Prometheus + Grafana):**
 > ```bash
 > cd infra && docker compose up --build
 > # Web UI    → http://localhost:3000
+> # TURN      → turn:localhost:3478 (username: telly, password: dev-turn-password)
 > # Grafana   → http://localhost:3001  (admin / telly_grafana_dev)
 > # Prometheus → http://localhost:9090
 > ```
@@ -149,8 +150,69 @@ python brain.py
 cd infra
 docker compose up --build
 # Web UI   → http://localhost:3000
+# TURN     → turn:localhost:3478 (udp/tcp)
 # Grafana  → http://localhost:3001  (admin / telly_grafana_dev)
 # Prometheus → http://localhost:9090
+```
+
+### PostgreSQL production workflow
+
+Keep local development on SQLite with `prisma/schema.prisma`, and use PostgreSQL
+in production with `prisma/schema.postgres.prisma`.
+
+```bash
+cd backend
+export DATABASE_URL='postgresql://telly:telly@localhost:5432/telly'
+npm run db:generate:postgres
+npm run db:migrate:postgres
+npm run db:deploy:postgres
+```
+
+### Stress harness
+
+Use the built-in API stress harness to validate backend readiness and reliability
+under concurrent probing.
+
+```bash
+cd backend
+BASE_URL=http://localhost:3000 TOTAL_REQUESTS=500 CONCURRENCY=40 npm run stress:api
+```
+
+### Call analytics summary API
+
+Per-user reliability summary from durable analytics records:
+
+```bash
+curl -H "Authorization: Bearer <JWT>" \
+    "http://localhost:3000/calls/analytics/summary?days=30"
+```
+
+### Admin control access
+
+The backend supports admin-only control routes under `/admin/*`.
+
+- Default admin email: `jerryphisael@gmail.com`
+- Configure one or more admin emails via `ADMIN_EMAILS` in `.env`
+
+After registering or logging in with an admin email, your account is elevated.
+
+Example admin routes (JWT required):
+
+```bash
+# Platform overview
+curl -H "Authorization: Bearer <JWT>" http://localhost:3000/admin/overview
+
+# List users
+curl -H "Authorization: Bearer <JWT>" "http://localhost:3000/admin/users?page=1&limit=25"
+
+# Promote user to admin
+curl -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer <JWT>" \
+    -d '{"isAdmin":true}' http://localhost:3000/admin/users/<USER_ID>/role
+
+# Activate subscription / update expiry
+curl -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer <JWT>" \
+    -d '{"isActive":true,"subscriptionExpiry":"2026-12-31T00:00:00.000Z"}' \
+    http://localhost:3000/admin/users/<USER_ID>/subscription
 ```
 
 ### Mobile — Fastlane build & release
@@ -198,6 +260,11 @@ See [mobile/FASTLANE.md](mobile/FASTLANE.md) for all lanes, required secrets, an
 | `MPESA_SHORT_CODE` | M-Pesa paybill/till number |
 | `MPESA_PASS_KEY` | M-Pesa passkey |
 | `MPESA_CALLBACK_URL` | Public URL for M-Pesa payment callbacks |
+| `STUN_SERVERS` | Comma-separated STUN server list for ICE discovery |
+| `TURN_URLS` | Comma-separated TURN URLs (`turn:...?...`) |
+| `TURN_USERNAME` | TURN username for long-term credentials |
+| `TURN_CREDENTIAL` | TURN password/credential |
+| `TURN_ENFORCE_RELAY` | If `true`, client receives relay recommendation |
 | `OPENAI_API_KEY` | OpenAI API key (bot) |
 | `DEEPGRAM_API_KEY` | Deepgram API key (bot) |
 | `AZURE_TTS_KEY` | Azure Cognitive Services TTS key (bot) |

@@ -37,6 +37,8 @@ export interface AuthPayload {
   token?: string;
 }
 
+const GRACE_PERIOD_HOURS = parseInt(process.env.SUBSCRIPTION_GRACE_HOURS ?? '0', 10);
+
 /**
  * Socket.io middleware that enforces subscription status.
  * A user with an expired or inactive subscription is disconnected
@@ -68,8 +70,26 @@ export async function gatekeeperMiddleware(
     });
 
     const now = new Date();
-    if (!user?.isActive || user.subscriptionExpiry < now) {
+    if (!user?.isActive) {
       return next(new Error('TELLY_LINE_INACTIVE'));
+    }
+
+    const expiry = new Date(user.subscriptionExpiry);
+    if (Number.isNaN(expiry.getTime())) {
+      return next(new Error('TELLY_LINE_INACTIVE'));
+    }
+
+    const graceDeadline = new Date(expiry);
+    graceDeadline.setHours(graceDeadline.getHours() + Math.max(0, GRACE_PERIOD_HOURS));
+
+    if (expiry < now && graceDeadline < now) {
+      return next(new Error('TELLY_LINE_INACTIVE'));
+    }
+
+    if (expiry < now && graceDeadline >= now) {
+      const mutableSocket = socket as Socket & { data?: Record<string, unknown> };
+      mutableSocket.data = mutableSocket.data ?? {};
+      mutableSocket.data.subscriptionInGrace = true;
     }
 
     // Cache active status for 60 seconds to reduce DB load

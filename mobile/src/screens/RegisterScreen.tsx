@@ -7,10 +7,8 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,12 +17,18 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
+import { theme } from '../theme';
+import AppCard from '../components/AppCard';
+import AppInput from '../components/AppInput';
+import AppButton from '../components/AppButton';
+import FadeInView from '../components/FadeInView';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>;
 };
 
-const API_URL = process.env.API_URL ?? 'https://api.telly.co.ke';
+const API_URL = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.API_URL
+  ?? 'https://api.telly.co.ke';
 
 export default function RegisterScreen({ navigation }: Props): React.JSX.Element {
   const [name, setName] = useState('');
@@ -60,6 +64,7 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
       const data = await response.json() as {
         user?: { id: string; name: string; email: string; phoneNumber: string };
         token?: string;
+        tellyId?: string | null;
         error?: string;
       };
 
@@ -69,12 +74,35 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
       }
 
       if (data.token && data.user) {
+        let resolvedTellyId = data.tellyId ?? null;
+
+        // Fallback: fetch generated Telly ID if register response omitted it.
+        if (!resolvedTellyId) {
+          try {
+            const tidRes = await fetch(`${API_URL}/telly-id`, {
+              headers: { Authorization: `Bearer ${data.token}` },
+            });
+            if (tidRes.ok) {
+              const tidPayload = await tidRes.json() as { tellyId?: string };
+              resolvedTellyId = tidPayload.tellyId ?? null;
+            }
+          } catch {
+            // Ignore fallback errors; signup already succeeded.
+          }
+        }
+
         await AsyncStorage.multiSet([
           ['authToken', data.token],
           ['userId', data.user.id],
           ['userName', data.user.name],
           ['userPhone', data.user.phoneNumber],
+          ['tellyId', resolvedTellyId ?? ''],
         ]);
+
+        if (resolvedTellyId) {
+          Alert.alert('Account ready', `Your Telly ID is ${resolvedTellyId}`);
+        }
+
         navigation.replace('Home');
       }
     } catch {
@@ -90,27 +118,27 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
+        <View style={styles.bgOrbTop} />
+        <View style={styles.bgOrbBottom} />
+        <FadeInView style={styles.header}>
           <Text style={styles.logoText}>📞</Text>
           <Text style={styles.title}>Create Account</Text>
-        </View>
+          <Text style={styles.subtitle}>Set up your profile to start low-data calls.</Text>
+        </FadeInView>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>Full Name</Text>
-          <TextInput
-            style={styles.input}
+        <FadeInView delay={90}>
+          <AppCard>
+          <AppInput
+            label="Full Name"
             placeholder="e.g. Alice Kamau"
-            placeholderTextColor="#9E9E9E"
             autoCapitalize="words"
             value={name}
             onChangeText={setName}
           />
 
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
+          <AppInput
+            label="Email"
             placeholder="you@example.com"
-            placeholderTextColor="#9E9E9E"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -118,37 +146,28 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
             onChangeText={setEmail}
           />
 
-          <Text style={styles.label}>Phone Number (E.164)</Text>
-          <TextInput
-            style={styles.input}
+          <AppInput
+            label="Phone Number (E.164)"
             placeholder="+254712345678"
-            placeholderTextColor="#9E9E9E"
             keyboardType="phone-pad"
             value={phone}
             onChangeText={setPhone}
           />
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
+          <AppInput
+            label="Password"
             placeholder="Minimum 8 characters"
-            placeholderTextColor="#9E9E9E"
             secureTextEntry
             value={password}
             onChangeText={setPassword}
           />
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+          <AppButton
+            style={styles.buttonSpacing}
+            label="Create Account"
             onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text style={styles.buttonText}>Create Account</Text>
-            )}
-          </TouchableOpacity>
+            loading={loading}
+          />
 
           <TouchableOpacity
             style={styles.linkButton}
@@ -158,39 +177,42 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
               Already have an account? <Text style={styles.linkHighlight}>Sign In</Text>
             </Text>
           </TouchableOpacity>
-        </View>
+          </AppCard>
+        </FadeInView>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1A237E' },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   scroll: { padding: 24, justifyContent: 'center', flexGrow: 1 },
+  bgOrbTop: {
+    position: 'absolute',
+    top: -80,
+    right: -40,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: 'rgba(82, 212, 240, 0.15)',
+  },
+  bgOrbBottom: {
+    position: 'absolute',
+    bottom: -120,
+    left: -80,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(43, 208, 168, 0.12)',
+  },
   header: { alignItems: 'center', marginBottom: 28 },
   logoText: { fontSize: 48 },
-  title: { color: '#FFF', fontSize: 28, fontWeight: '700', marginTop: 8 },
-  form: { backgroundColor: '#FFF', borderRadius: 16, padding: 24, elevation: 4 },
-  label: { color: '#424242', fontSize: 13, fontWeight: '600', marginBottom: 4, marginTop: 12 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    color: '#212121',
-    backgroundColor: '#FAFAFA',
-  },
-  button: {
-    backgroundColor: '#1976D2',
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
+  title: { color: theme.colors.text, fontSize: 28, fontWeight: '800', marginTop: 8 },
+  subtitle: { color: theme.colors.muted, fontSize: 13, marginTop: 6 },
+  buttonSpacing: {
     marginTop: 20,
   },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
   linkButton: { alignItems: 'center', marginTop: 16 },
-  linkText: { color: '#757575', fontSize: 14 },
-  linkHighlight: { color: '#1976D2', fontWeight: '600' },
+  linkText: { color: theme.colors.muted, fontSize: 14 },
+  linkHighlight: { color: theme.colors.accent, fontWeight: '700' },
 });

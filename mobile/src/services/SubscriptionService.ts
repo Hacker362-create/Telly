@@ -3,7 +3,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_URL = process.env.API_URL ?? 'https://api.telly.co.ke';
+const API_URL = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.API_URL
+  ?? 'https://api.telly.co.ke';
 
 /** Helper: build Authorization header from stored JWT token. */
 async function authHeaders(): Promise<{ Authorization: string } | Record<string, never>> {

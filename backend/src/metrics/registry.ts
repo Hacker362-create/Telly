@@ -28,11 +28,50 @@ export const callsEndedCounter = new client.Counter({
   help: 'Total number of calls that have ended',
 });
 
+/** Total connected calls that reached active media state. */
+export const callsConnectedCounter = new client.Counter({
+  name: 'telly_calls_connected_total',
+  help: 'Total calls that reached connected state',
+});
+
+/** Total calls marked failed by client-side reliability reporting. */
+export const callFailuresCounter = new client.Counter({
+  name: 'telly_call_failures_total',
+  help: 'Total calls that failed (never stabilized or dropped early)',
+});
+
 /** Call duration distribution in milliseconds since process launch. */
 export const callDurationHistogram = new client.Histogram({
   name: 'telly_call_duration_ms',
   help: 'Call duration distribution in milliseconds',
   buckets: [1000, 5000, 15000, 30000, 60000, 120000, 300000, 600000],
+});
+
+/** End-to-end call setup time in ms (initiate -> accepted). */
+export const callSetupLatencyHistogram = new client.Histogram({
+  name: 'telly_call_setup_latency_ms',
+  help: 'Call setup latency in milliseconds',
+  buckets: [100, 300, 500, 800, 1000, 1500, 3000, 5000],
+});
+
+/** Packet loss percentage observed client-side during active calls. */
+export const callPacketLossHistogram = new client.Histogram({
+  name: 'telly_call_packet_loss_pct',
+  help: 'Packet loss percentage observed in active calls',
+  buckets: [0.5, 1, 2, 4, 6, 10, 20],
+});
+
+/** Call RTT/latency observed client-side (ms). */
+export const callLatencyHistogram = new client.Histogram({
+  name: 'telly_call_latency_ms',
+  help: 'Call network latency observed in milliseconds',
+  buckets: [40, 80, 120, 180, 250, 350, 500, 800],
+});
+
+/** Total call media bytes exchanged as reported by clients. */
+export const callDataBytesCounter = new client.Counter({
+  name: 'telly_call_data_bytes_total',
+  help: 'Total audio media bytes consumed by calls',
 });
 
 // ── Transport metrics ─────────────────────────────────────────────────────────
