@@ -1,5 +1,5 @@
 // src/signaling/Gatekeeper.ts
-// Subscription gate middleware: validates active KES 500/month M-Pesa subscription
+// Subscription gate middleware: validates subscription or free-tier daily limit
 // before allowing any socket connection to proceed.
 
 import type { Socket } from 'socket.io';
@@ -38,6 +38,30 @@ export interface AuthPayload {
 }
 
 const GRACE_PERIOD_HOURS = parseInt(process.env.SUBSCRIPTION_GRACE_HOURS ?? '0', 10);
+const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
+
+/**
+ * Returns true if the user has not yet exhausted their daily free-tier minutes.
+ * Resets the counter if lastResetDate is not today (UTC).
+ */
+async function isWithinFreeTier(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { dailyMinutesUsed: true, lastResetDate: true },
+  });
+  if (!user) return false;
+
+  const now = new Date();
+  const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
+  const isNewDay =
+    !lastReset ||
+    lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
+    lastReset.getUTCMonth() !== now.getUTCMonth() ||
+    lastReset.getUTCDate() !== now.getUTCDate();
+
+  const minutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+  return minutesUsed < DAILY_FREE_MINUTES;
+}
 
 /**
  * Socket.io middleware that enforces subscription status.
@@ -66,35 +90,51 @@ export async function gatekeeperMiddleware(
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { isActive: true, subscriptionExpiry: true },
+      select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
     });
 
+    if (!user) {
+      return next(new Error('TELLY_LINE_INACTIVE'));
+    }
+
     const now = new Date();
-    if (!user?.isActive) {
-      return next(new Error('TELLY_LINE_INACTIVE'));
-    }
-
     const expiry = new Date(user.subscriptionExpiry);
-    if (Number.isNaN(expiry.getTime())) {
-      return next(new Error('TELLY_LINE_INACTIVE'));
-    }
-
-    const graceDeadline = new Date(expiry);
+    const expiryValid = !Number.isNaN(expiry.getTime());
+    const graceDeadline = expiryValid ? new Date(expiry) : new Date(0);
     graceDeadline.setHours(graceDeadline.getHours() + Math.max(0, GRACE_PERIOD_HOURS));
 
-    if (expiry < now && graceDeadline < now) {
-      return next(new Error('TELLY_LINE_INACTIVE'));
-    }
+    const isFullySubscribed = user.isActive && expiryValid && expiry >= now;
+    const isInGrace = user.isActive && expiryValid && expiry < now && graceDeadline >= now;
 
-    if (expiry < now && graceDeadline >= now) {
+    if (isFullySubscribed || isInGrace) {
       const mutableSocket = socket as Socket & { data?: Record<string, unknown> };
       mutableSocket.data = mutableSocket.data ?? {};
-      mutableSocket.data.subscriptionInGrace = true;
+      if (isInGrace) {
+        mutableSocket.data.subscriptionInGrace = true;
+      }
+      // Cache active/grace status for 60 seconds to reduce DB load
+      await redis.setex(cacheKey, 60, 'active');
+      return next();
     }
 
-    // Cache active status for 60 seconds to reduce DB load
-    await redis.setex(cacheKey, 60, 'active');
-    next();
+    // Not subscribed — check free-tier daily limit
+    const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
+    const isNewDay =
+      !lastReset ||
+      lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
+      lastReset.getUTCMonth() !== now.getUTCMonth() ||
+      lastReset.getUTCDate() !== now.getUTCDate();
+    const minutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+
+    if (minutesUsed < DAILY_FREE_MINUTES) {
+      const mutableSocket = socket as Socket & { data?: Record<string, unknown> };
+      mutableSocket.data = mutableSocket.data ?? {};
+      mutableSocket.data.freeTier = true;
+      mutableSocket.data.freeMinutesRemaining = DAILY_FREE_MINUTES - minutesUsed;
+      return next();
+    }
+
+    return next(new Error('TELLY_LINE_INACTIVE'));
   } catch (err) {
     next(new Error('TELLY_INTERNAL_ERROR'));
   }

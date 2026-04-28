@@ -10,6 +10,7 @@ import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
 import { signalingService } from '../services/SignalingService';
 import { webRTCService } from '../services/WebRTCService';
+import { subscriptionService } from '../services/SubscriptionService';
 import { theme } from '../theme';
 
 type Props = {
@@ -192,11 +193,39 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
     });
 
     webRTCService.close();
-    Alert.alert(
-      'Call usage',
-      `This call used ${tellyMb.toFixed(2)} MB.\nWhatsApp estimate: ~${waMb.toFixed(2)} MB`,
-    );
-    navigation.goBack();
+
+    // Check free-tier status after call ends — prompt upgrade if limit is near/hit
+    subscriptionService.getStatus().then((subStatus) => {
+      const dataMsg = `This call used ${tellyMb.toFixed(2)} MB.\nWhatsApp estimate: ~${waMb.toFixed(2)} MB`;
+      if (!subStatus.isSubscribed && subStatus.freeMinutesRemaining <= 0) {
+        Alert.alert(
+          'Free minutes used up',
+          `${dataMsg}\n\nYou've used all your free minutes for today. Subscribe for KES 100/month for unlimited calls.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.replace('Subscription') },
+          ],
+        );
+      } else if (!subStatus.isSubscribed && subStatus.freeMinutesRemaining <= 2) {
+        Alert.alert(
+          'Call usage',
+          `${dataMsg}\n\nOnly ${subStatus.freeMinutesRemaining} free minute(s) left today. Consider subscribing for unlimited calls.`,
+          [
+            { text: 'OK', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.replace('Subscription') },
+          ],
+        );
+      } else {
+        Alert.alert('Call usage', dataMsg);
+      }
+      navigation.goBack();
+    }).catch(() => {
+      Alert.alert(
+        'Call usage',
+        `This call used ${tellyMb.toFixed(2)} MB.\nWhatsApp estimate: ~${waMb.toFixed(2)} MB`,
+      );
+      navigation.goBack();
+    });
   };
 
   const handleToggleMute = (): void => {

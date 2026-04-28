@@ -16,6 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { signalingService } from '../services/SignalingService';
 import { subscriptionService } from '../services/SubscriptionService';
+import type { SubscriptionStatus } from '../services/SubscriptionService';
 import { theme } from '../theme';
 import AppCard from '../components/AppCard';
 import FadeInView from '../components/FadeInView';
@@ -41,6 +42,7 @@ const API_URL =
 
 export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
   const [userName, setUserName] = useState('');
   const [tellyId, setTellyId] = useState('');
   const [successRate, setSuccessRate] = useState<number | null>(null);
@@ -76,7 +78,10 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   };
 
   useEffect(() => {
-    subscriptionService.checkStatus().then(setIsSubscribed);
+    subscriptionService.getStatus().then((s) => {
+      setIsSubscribed(s.isSubscribed);
+      setSubStatus(s);
+    });
     AsyncStorage.getItem('userName').then((n) => setUserName(n ?? ''));
     AsyncStorage.getItem('tellyId').then(async (v) => {
       const stored = v ?? '';
@@ -116,6 +121,26 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
     signalingService.onSubscriptionGrace((message) => {
       Alert.alert('Subscription grace period', message);
     });
+
+    signalingService.onSubscriptionBalance((balance) => {
+      setSubStatus((prev) => ({
+        isSubscribed: prev?.isSubscribed ?? false,
+        subscriptionExpiry: prev?.subscriptionExpiry,
+        dailyFreeMinutes: balance.dailyFreeMinutes,
+        dailyMinutesUsed: balance.dailyMinutesUsed,
+        freeMinutesRemaining: balance.freeMinutesRemaining,
+      }));
+      if (balance.freeMinutesRemaining <= 2) {
+        Alert.alert(
+          'Free tier almost used',
+          `Only ${balance.freeMinutesRemaining} free minute(s) remaining today. Subscribe for KES 100/month for unlimited calls.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.navigate('Subscription') },
+          ],
+        );
+      }
+    });
   }, [navigation]);
 
   const resolveRecipientId = async (contact: ContactItem): Promise<string | null> => {
@@ -135,15 +160,17 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
 
   const handleCall = async (contact: ContactItem): Promise<void> => {
     if (!isSubscribed) {
-      Alert.alert(
-        'No Active Subscription',
-        'Subscribe for KES 500/month to make calls.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Subscribe', onPress: () => navigation.navigate('Subscription') },
-        ],
-      );
-      return;
+      if (!subStatus || subStatus.freeMinutesRemaining <= 0) {
+        Alert.alert(
+          'No Free Minutes Left',
+          'You\'ve used all your free minutes for today. Subscribe for KES 100/month for unlimited calls.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Subscribe', onPress: () => navigation.navigate('Subscription') },
+          ],
+        );
+        return;
+      }
     }
 
     const recipientId = await resolveRecipientId(contact);
@@ -301,9 +328,18 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={isSubscribed ? 1 : 0.7}
         >
           <Text style={styles.badgeText}>
-            {isSubscribed ? '✓ Telly Active' : '⚠ Tap to Subscribe — KES 500/month'}
+            {isSubscribed
+              ? '✓ Telly Active'
+              : subStatus && subStatus.freeMinutesRemaining > 0
+                ? `🆓 ${subStatus.freeMinutesRemaining} free min left today — Tap to upgrade`
+                : '⚠ Tap to Subscribe — KES 100/month'}
           </Text>
         </TouchableOpacity>
+        {!isSubscribed && subStatus && subStatus.freeMinutesRemaining <= 3 && subStatus.freeMinutesRemaining > 0 && (
+          <Text style={styles.freeTierWarning}>
+            Running low on free minutes. Subscribe for unlimited calls.
+          </Text>
+        )}
       </FadeInView>
 
       <FadeInView delay={120}>
@@ -465,6 +501,15 @@ const styles = StyleSheet.create({
   activeBadge: { backgroundColor: 'rgba(43, 208, 168, 0.15)', borderColor: 'rgba(43, 208, 168, 0.45)' },
   inactiveBadge: { backgroundColor: 'rgba(243, 181, 86, 0.15)', borderColor: 'rgba(243, 181, 86, 0.5)' },
   badgeText: { color: theme.colors.text, fontWeight: '700', fontSize: 13 },
+  freeTierWarning: {
+    color: theme.colors.muted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginHorizontal: 16,
+    marginTop: -6,
+    marginBottom: 6,
+    fontWeight: '600',
+  },
   sectionTitle: {
     color: theme.colors.text,
     fontSize: 16,

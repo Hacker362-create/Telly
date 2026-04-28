@@ -135,7 +135,7 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { isActive: true, subscriptionExpiry: true },
+    select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
   });
 
   if (!user) {
@@ -143,10 +143,26 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
     return;
   }
 
-  const isSubscribed = user.isActive && user.subscriptionExpiry > new Date();
+  const now = new Date();
+  const isSubscribed = user.isActive && user.subscriptionExpiry > now;
+
+  // Reset daily counter if the last reset was not today
+  const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
+  const isNewDay =
+    !lastReset ||
+    lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
+    lastReset.getUTCMonth() !== now.getUTCMonth() ||
+    lastReset.getUTCDate() !== now.getUTCDate();
+  const dailyMinutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+
+  const freeMinutesRemaining = Math.max(0, DAILY_FREE_MINUTES - dailyMinutesUsed);
+
   res.json({
     isSubscribed,
     subscriptionExpiry: user.subscriptionExpiry,
+    dailyFreeMinutes: DAILY_FREE_MINUTES,
+    dailyMinutesUsed,
+    freeMinutesRemaining,
   });
 });
 

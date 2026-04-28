@@ -47,18 +47,38 @@ describe('gatekeeperMiddleware', () => {
     expect(__mockFindUnique).not.toHaveBeenCalled();
   });
 
-  it('blocks connection when subscription is expired', async () => {
+  it('blocks connection when subscription is expired and free tier is exhausted', async () => {
     const expiredDate = new Date(Date.now() - 1000);
-    __mockFindUnique.mockResolvedValue({ isActive: true, subscriptionExpiry: expiredDate });
+    __mockFindUnique.mockResolvedValue({
+      isActive: true,
+      subscriptionExpiry: expiredDate,
+      dailyMinutesUsed: 10,
+      lastResetDate: new Date(),
+    });
     const next = jest.fn();
     await gatekeeperMiddleware(makeSocket({ userId: 'user-2' }), next);
     expect(next).toHaveBeenCalledWith(new Error('TELLY_LINE_INACTIVE'));
   });
 
-  it('blocks connection when user isActive is false', async () => {
+  it('allows connection when subscription is expired but free tier has minutes remaining', async () => {
+    const expiredDate = new Date(Date.now() - 1000);
+    __mockFindUnique.mockResolvedValue({
+      isActive: true,
+      subscriptionExpiry: expiredDate,
+      dailyMinutesUsed: 3,
+      lastResetDate: new Date(),
+    });
+    const next = jest.fn();
+    await gatekeeperMiddleware(makeSocket({ userId: 'user-2b' }), next);
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it('blocks connection when user isActive is false and free tier is exhausted', async () => {
     __mockFindUnique.mockResolvedValue({
       isActive: false,
       subscriptionExpiry: new Date(Date.now() + 86400000),
+      dailyMinutesUsed: 10,
+      lastResetDate: new Date(),
     });
     const next = jest.fn();
     await gatekeeperMiddleware(makeSocket({ userId: 'user-3' }), next);
@@ -69,6 +89,8 @@ describe('gatekeeperMiddleware', () => {
     __mockFindUnique.mockResolvedValue({
       isActive: true,
       subscriptionExpiry: new Date(Date.now() + 86400000),
+      dailyMinutesUsed: 0,
+      lastResetDate: new Date(),
     });
     const next = jest.fn();
     await gatekeeperMiddleware(makeSocket({ userId: 'user-4' }), next);

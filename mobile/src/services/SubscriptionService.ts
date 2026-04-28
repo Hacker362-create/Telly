@@ -12,19 +12,44 @@ async function authHeaders(): Promise<{ Authorization: string } | Record<string,
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export interface SubscriptionStatus {
+  isSubscribed: boolean;
+  subscriptionExpiry?: string;
+  dailyFreeMinutes: number;
+  dailyMinutesUsed: number;
+  freeMinutesRemaining: number;
+}
+
 class SubscriptionService {
   async checkStatus(): Promise<boolean> {
+    const status = await this.getStatus();
+    return status.isSubscribed;
+  }
+
+  async getStatus(): Promise<SubscriptionStatus> {
+    const defaultStatus: SubscriptionStatus = {
+      isSubscribed: false,
+      dailyFreeMinutes: 10,
+      dailyMinutesUsed: 0,
+      freeMinutesRemaining: 10,
+    };
     try {
       const userId = await AsyncStorage.getItem('userId');
-      if (!userId) return false;
+      if (!userId) return defaultStatus;
 
       const response = await fetch(`${API_URL}/subscription/status/${userId}`, {
         headers: { ...(await authHeaders()) },
       });
-      const data = (await response.json()) as { isSubscribed: boolean };
-      return data.isSubscribed;
+      const data = (await response.json()) as Partial<SubscriptionStatus>;
+      return {
+        isSubscribed: data.isSubscribed ?? false,
+        subscriptionExpiry: data.subscriptionExpiry,
+        dailyFreeMinutes: data.dailyFreeMinutes ?? 10,
+        dailyMinutesUsed: data.dailyMinutesUsed ?? 0,
+        freeMinutesRemaining: data.freeMinutesRemaining ?? 10,
+      };
     } catch {
-      return false;
+      return defaultStatus;
     }
   }
 

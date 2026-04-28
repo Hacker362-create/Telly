@@ -150,6 +150,18 @@ export function createSignalingServer(httpServer: http.Server): Server {
       });
     }
 
+    if (socket.data.freeTier) {
+      const dailyFreeMinutes = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
+      const freeMinutesRemaining = typeof socket.data.freeMinutesRemaining === 'number'
+        ? socket.data.freeMinutesRemaining
+        : dailyFreeMinutes;
+      socket.emit('subscription:balance', {
+        freeMinutesRemaining,
+        dailyFreeMinutes,
+        dailyMinutesUsed: dailyFreeMinutes - freeMinutesRemaining,
+      });
+    }
+
     // Allow the client to update its own status (busy, away, online)
     socket.on('presence:set', ({ status }: { status: PresenceStatus }) => {
       const allowed: PresenceStatus[] = ['online', 'busy', 'away'];
@@ -424,7 +436,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
     });
 
     // End a call — update the CallLog with duration
-    socket.on('call:end', ({ callId, stats }: { callId: string; stats?: EndCallStats }) => {
+    socket.on('call:end', async ({ callId, stats }: { callId: string; stats?: EndCallStats }) => {
       const session = activeCalls.get(callId);
       if (!session) return;
       console.info(`[Signaling] call:end callId=${callId} initiator=${userId}`);
@@ -512,6 +524,56 @@ export function createSignalingServer(httpServer: http.Server): Server {
           endedAt: endedAt.toISOString(),
         }),
       ).catch(() => undefined);
+
+      // Deduct daily free-tier minutes for both caller and callee if unsubscribed
+      const durationMinutes = Math.ceil(durationMs / 60000);
+      if (durationMinutes > 0) {
+        const deductFreeTierMinutes = async (targetUserId: string): Promise<void> => {
+          const user = await prisma.user.findUnique({
+            where: { id: targetUserId },
+            select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
+          });
+          if (!user) return;
+
+          const now = new Date();
+          const isSubscribed = user.isActive && user.subscriptionExpiry > now;
+          if (isSubscribed) return; // subscribed users are not on the free tier
+
+          const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
+          const isNewDay =
+            !lastReset ||
+            lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
+            lastReset.getUTCMonth() !== now.getUTCMonth() ||
+            lastReset.getUTCDate() !== now.getUTCDate();
+
+          const currentUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+          const dailyFreeMinutes = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
+          const newUsed = Math.min(currentUsed + durationMinutes, dailyFreeMinutes);
+          const freeMinutesRemaining = Math.max(0, dailyFreeMinutes - newUsed);
+
+          await prisma.user.update({
+            where: { id: targetUserId },
+            data: {
+              dailyMinutesUsed: newUsed,
+              lastResetDate: isNewDay ? now : undefined,
+            },
+          });
+
+          // Emit balance update to the user
+          io.to(`user:${targetUserId}`).emit('subscription:balance', {
+            freeMinutesRemaining,
+            dailyFreeMinutes,
+            dailyMinutesUsed: newUsed,
+          });
+        };
+
+        deductFreeTierMinutes(session.callerId).catch((err) =>
+          console.error('[Signaling] Free tier deduction failed for caller:', err),
+        );
+        deductFreeTierMinutes(session.calleeId).catch((err) =>
+          console.error('[Signaling] Free tier deduction failed for callee:', err),
+        );
+      }
 
       const nextQueued = pendingCallQueue.get(session.calleeId)?.shift();
       if (nextQueued) {

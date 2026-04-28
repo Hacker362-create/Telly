@@ -16,6 +16,7 @@ type OfferHandler = (offer: object) => void;
 type IceCandidateHandler = (candidate: object) => void;
 type CallQueuedHandler = (etaMs: number) => void;
 type SubscriptionGraceHandler = (message: string) => void;
+type SubscriptionBalanceHandler = (balance: { freeMinutesRemaining: number; dailyFreeMinutes: number; dailyMinutesUsed: number }) => void;
 type IceRestartHandler = () => void;
 type RelayModeHandler = () => void;
 
@@ -44,6 +45,7 @@ class SignalingService {
   private callQueuedHandlers = new Map<string, CallQueuedHandler>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private subscriptionGraceHandlers: SubscriptionGraceHandler[] = [];
+  private subscriptionBalanceHandlers: SubscriptionBalanceHandler[] = [];
   private iceRestartHandlers = new Map<string, IceRestartHandler>();
   private relayModeHandlers = new Map<string, RelayModeHandler>();
 
@@ -144,6 +146,10 @@ class SignalingService {
       this.subscriptionGraceHandlers.forEach((h) => h(message));
     });
 
+    this.socket.on('subscription:balance', (balance: { freeMinutesRemaining: number; dailyFreeMinutes: number; dailyMinutesUsed: number }) => {
+      this.subscriptionBalanceHandlers.forEach((h) => h(balance));
+    });
+
     this.heartbeat = setInterval(() => {
       this.socket?.emit('presence:heartbeat');
     }, 15000);
@@ -177,6 +183,7 @@ class SignalingService {
     this.iceRestartHandlers.clear();
     this.relayModeHandlers.clear();
     this.subscriptionGraceHandlers = [];
+    this.subscriptionBalanceHandlers = [];
     if (this.heartbeat) {
       clearInterval(this.heartbeat);
       this.heartbeat = null;
@@ -315,6 +322,10 @@ class SignalingService {
 
   onSubscriptionGrace(handler: SubscriptionGraceHandler): void {
     this.subscriptionGraceHandlers.push(handler);
+  }
+
+  onSubscriptionBalance(handler: SubscriptionBalanceHandler): void {
+    this.subscriptionBalanceHandlers.push(handler);
   }
 
   onIceRestart(callId: string, handler: IceRestartHandler): void {

@@ -124,12 +124,15 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
       <View style={styles.bgOrbBottom} />
       <FadeInView style={styles.center}>
         <Text style={styles.planIcon}>📱</Text>
-        <Text style={styles.planTitle}>Telly — KES 500 / month</Text>
+        <Text style={styles.planTitle}>Telly — KES 100 / month</Text>
         <Text style={styles.planFeatures}>
           ✓ Unlimited VoIP calls{'\n'}
           ✓ Uses only ~1 MB per minute{'\n'}
           ✓ Works on 2G / edge networks{'\n'}
           ✓ Swahili/English AI assistant
+        </Text>
+        <Text style={styles.freeTierNote}>
+          🆓 Free tier: 10 minutes/day — no payment needed
         </Text>
       </FadeInView>
 
@@ -159,7 +162,7 @@ export default function SubscriptionScreen({ navigation }: Props): React.JSX.Ele
 
         <AppButton
           style={styles.buttonSpacing}
-          label={paymentState === 'polling' ? 'Waiting for payment...' : 'Pay KES 500 via M-Pesa'}
+          label={paymentState === 'polling' ? 'Waiting for payment...' : 'Pay KES 100 via M-Pesa'}
           onPress={handlePay}
           loading={paymentState === 'sending'}
           disabled={paymentState === 'sending' || paymentState === 'polling'}
@@ -214,6 +217,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(82, 212, 240, 0.3)',
+  },
+  freeTierNote: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+    fontWeight: '600',
   },
   pollingBox: {
     flexDirection: 'row',
