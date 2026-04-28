@@ -1,6 +1,8 @@
 // src/routes/subscription.ts
 // REST endpoints for subscription management: initiate payment, handle M-Pesa callback,
 // and query subscription status.
+// Free tier: 10 minutes/day (configurable via DAILY_FREE_MINUTES env var).
+// Paid plan: KES 100/month → 30 days of unlimited calls.
 // Subscription status and initiation require a valid JWT token.
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -11,6 +13,9 @@ import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
 const router = Router();
 const prisma = new PrismaClient();
 const mpesa = createMpesaClient();
+
+/** Daily free-tier limit in minutes (default: 10). */
+const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
 
 /**
  * Safaricom publishes the IP ranges their callback servers use.
@@ -42,7 +47,7 @@ function requireSafaricomIP(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 
-// POST /subscription/initiate - Start M-Pesa STK push for KES 500 subscription
+// POST /subscription/initiate - Start M-Pesa STK push for KES 100/month subscription
 router.post('/initiate', apiLimiter, requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   // Use the authenticated userId from the JWT — never trust the body for identity
   const userId = req.userId as string;
@@ -60,7 +65,7 @@ router.post('/initiate', apiLimiter, requireAuth, async (req: AuthRequest, res: 
     const result = await mpesa.initiateSTKPush(
       {
         phoneNumber,
-        amount: 500,
+        amount: 100,
         accountReference: `TELLY-${userId}`,
         transactionDesc: 'Telly Monthly Subscription',
       },
@@ -92,7 +97,7 @@ router.post('/callback', requireSafaricomIP, async (req: Request, res: Response)
 
     if (userId && userId.length > 0 && accountRef?.startsWith('TELLY-')) {
       const expiry = new Date();
-      expiry.setMonth(expiry.getMonth() + 1);
+      expiry.setDate(expiry.getDate() + 30);
 
       await prisma.user.update({
         where: { id: userId },

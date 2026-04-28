@@ -16,6 +16,8 @@ model User {
   isAdmin            Boolean       @default(false)
   isActive           Boolean       @default(false)
   subscriptionExpiry DateTime
+  dailyMinutesUsed   Int           @default(0)
+  lastResetDate      DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   tellyId            TellyID?
