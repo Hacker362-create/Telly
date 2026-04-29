@@ -38,16 +38,17 @@ export interface AuthPayload {
 }
 
 const GRACE_PERIOD_HOURS = parseInt(process.env.SUBSCRIPTION_GRACE_HOURS ?? '0', 10);
-const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
+const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '15', 10);
 
 /**
  * Returns true if the user has not yet exhausted their daily free-tier minutes.
+ * Bonus minutes (from referrals) are used after daily free minutes.
  * Resets the counter if lastResetDate is not today (UTC).
  */
 async function isWithinFreeTier(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { dailyMinutesUsed: true, lastResetDate: true },
+    select: { dailyMinutesUsed: true, lastResetDate: true, bonusMinutes: true },
   });
   if (!user) return false;
 
@@ -60,7 +61,8 @@ async function isWithinFreeTier(userId: string): Promise<boolean> {
     lastReset.getUTCDate() !== now.getUTCDate();
 
   const minutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
-  return minutesUsed < DAILY_FREE_MINUTES;
+  const bonusMinutes = user.bonusMinutes ?? 0;
+  return minutesUsed < DAILY_FREE_MINUTES || bonusMinutes > 0;
 }
 
 /**

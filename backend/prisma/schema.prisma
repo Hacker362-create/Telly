@@ -8,30 +8,38 @@ datasource db {
 }
 
 model User {
-  id                 String        @id @default(uuid())
-  name               String
-  email              String        @unique
-  passwordHash       String
-  phoneNumber        String        @unique
-  isAdmin            Boolean       @default(false)
-  isActive           Boolean       @default(false)
-  subscriptionExpiry DateTime
-  dailyMinutesUsed   Int           @default(0)
-  lastResetDate      DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  tellyId            TellyID?
-  contacts           Contact[]     @relation("contactOwner")
-  contactedBy        Contact[]     @relation("contactUser")
-  transactions       Transaction[]
-  callsAsCallee      CallLog[]     @relation("callee")
-  callsAsCaller      CallLog[]     @relation("caller")
-  sentMessages       Message[]     @relation("sent")
-  receivedMessages   Message[]     @relation("received")
-  voicemailsSent     Voicemail[]   @relation("voicemailsCaller")
-  voicemailsReceived Voicemail[]   @relation("voicemailsRecipient")
-  analyticsAsCaller  CallAnalytics[] @relation("analyticsCaller")
-  analyticsAsCallee  CallAnalytics[] @relation("analyticsCallee")
+  id                   String        @id @default(uuid())
+  name                 String
+  email                String        @unique
+  passwordHash         String
+  phoneNumber          String        @unique
+  isAdmin              Boolean       @default(false)
+  isActive             Boolean       @default(false)
+  subscriptionExpiry   DateTime
+  dailyMinutesUsed     Int           @default(0)
+  lastResetDate        DateTime?
+  referralCode         String?       @unique
+  referredBy           String?
+  referralCount        Int           @default(0)
+  referralRewardsEarned Int          @default(0)
+  bonusMinutes         Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  tellyId              TellyID?
+  contacts             Contact[]     @relation("contactOwner")
+  contactedBy          Contact[]     @relation("contactUser")
+  transactions         Transaction[]
+  callsAsCallee        CallLog[]     @relation("callee")
+  callsAsCaller        CallLog[]     @relation("caller")
+  sentMessages         Message[]     @relation("sent")
+  receivedMessages     Message[]     @relation("received")
+  voicemailsSent       Voicemail[]   @relation("voicemailsCaller")
+  voicemailsReceived   Voicemail[]   @relation("voicemailsRecipient")
+  analyticsAsCaller    CallAnalytics[] @relation("analyticsCaller")
+  analyticsAsCallee    CallAnalytics[] @relation("analyticsCallee")
+  feedbacks            Feedback[]    @relation("feedbackUser")
+
+  @@index([referralCode])
 }
 
 model Transaction {
@@ -46,17 +54,19 @@ model Transaction {
 }
 
 model CallLog {
-  id            String    @id @default(uuid())
-  callerId      String
-  calleeId      String
-  startedAt     DateTime  @default(now())
-  endedAt       DateTime?
-  durationMs    Int?
-  dataBytes     Int?
-  recordingUrl  String?
-  transcription String?
-  caller        User      @relation("caller", fields: [callerId], references: [id])
-  callee        User      @relation("callee", fields: [calleeId], references: [id])
+  id                   String    @id @default(uuid())
+  callerId             String
+  calleeId             String
+  startedAt            DateTime  @default(now())
+  endedAt              DateTime?
+  durationMs           Int?
+  dataBytes            Int?
+  recordingUrl         String?
+  transcription        String?
+  estimatedAirtimeCost Float?
+  estimatedSavingsKes  Float?
+  caller               User      @relation("caller", fields: [callerId], references: [id])
+  callee               User      @relation("callee", fields: [calleeId], references: [id])
 }
 
 model Message {
@@ -163,5 +173,19 @@ model Contact {
   @@unique([ownerId, contactUserId])
   @@index([ownerId, isFavorite])
   @@index([tellyId])
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String?
+  message   String
+  logs      String?
+  platform  String?
+  appVersion String?
+  createdAt DateTime @default(now())
+  user      User?    @relation("feedbackUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 

@@ -1,7 +1,7 @@
 // src/routes/subscription.ts
 // REST endpoints for subscription management: initiate payment, handle M-Pesa callback,
 // and query subscription status.
-// Free tier: 10 minutes/day (configurable via DAILY_FREE_MINUTES env var).
+// Free tier: 15 minutes/day (configurable via DAILY_FREE_MINUTES env var).
 // Paid plan: KES 100/month → 30 days of unlimited calls.
 // Subscription status and initiation require a valid JWT token.
 
@@ -14,8 +14,8 @@ const router = Router();
 const prisma = new PrismaClient();
 const mpesa = createMpesaClient();
 
-/** Daily free-tier limit in minutes (default: 10). */
-const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
+/** Daily free-tier limit in minutes (default: 15). */
+const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '15', 10);
 
 /**
  * Safaricom publishes the IP ranges their callback servers use.
@@ -135,7 +135,13 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
+    select: {
+      isActive: true,
+      subscriptionExpiry: true,
+      dailyMinutesUsed: true,
+      lastResetDate: true,
+      bonusMinutes: true,
+    },
   });
 
   if (!user) {
@@ -156,6 +162,25 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
   const dailyMinutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
 
   const freeMinutesRemaining = Math.max(0, DAILY_FREE_MINUTES - dailyMinutesUsed);
+  const bonusMinutes = user.bonusMinutes ?? 0;
+
+  // nextResetTime: UTC midnight of the next day
+  const nextResetTime = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  )).toISOString();
+
+  // Cumulative savings from all call logs
+  const savingsAgg = await (prisma as unknown as {
+    callLog: {
+      aggregate: (args: unknown) => Promise<{ _sum: { estimatedSavingsKes: number | null } }>
+    }
+  }).callLog.aggregate({
+    where: { callerId: userId },
+    _sum: { estimatedSavingsKes: true },
+  }).catch(() => ({ _sum: { estimatedSavingsKes: null } }));
+  const totalSavingsKes = Math.round((savingsAgg._sum.estimatedSavingsKes ?? 0) * 100) / 100;
 
   res.json({
     isSubscribed,
@@ -163,6 +188,9 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
     dailyFreeMinutes: DAILY_FREE_MINUTES,
     dailyMinutesUsed,
     freeMinutesRemaining,
+    bonusMinutes,
+    nextResetTime,
+    totalSavingsKes,
   });
 });
 
