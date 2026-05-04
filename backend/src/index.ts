@@ -55,7 +55,24 @@ app.use('/feedback', feedbackRouter);
 const httpServer = http.createServer(app);
 createSignalingServer(httpServer);
 
-const PORT = parseInt(process.env.PORT ?? '3000', 10);
+const rawPort = process.env.PORT ?? '3000';
+const parsedPort = Number.parseInt(rawPort, 10);
+const PORT = Number.isFinite(parsedPort) ? parsedPort : 3000;
+const HOST = process.env.HOST ?? '0.0.0.0';
+
+if (!Number.isFinite(parsedPort)) {
+  console.warn(`[Boot] Invalid PORT "${rawPort}", falling back to ${PORT}`);
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('[Fatal] Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Fatal] Unhandled rejection:', reason);
+  process.exit(1);
+});
 
 httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
@@ -69,7 +86,10 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 
-httpServer.listen(PORT, () => {
+console.log('[Boot] Starting Telly backend...');
+console.log(`[Boot] Binding HTTP server on ${HOST}:${PORT}`);
+
+httpServer.listen(PORT, HOST, () => {
   console.log(`Telly backend listening on port ${PORT}`);
 
   // Start the Mediasoup SFU worker after the HTTP server is up
