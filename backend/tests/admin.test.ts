@@ -13,7 +13,24 @@ function token(id = 'admin-user'): string {
 
 jest.mock('@prisma/client', () => {
   const users = new Map<string, Record<string, unknown>>();
-  const calls: Array<Record<string, unknown>> = [{ id: 'c1' }, { id: 'c2' }];
+  const calls: Array<Record<string, unknown>> = [
+    {
+      id: 'c1',
+      callerId: 'admin-user',
+      calleeId: 'normal-user',
+      startedAt: new Date(Date.now() - 3600000),
+      endedAt: new Date(Date.now() - 3500000),
+      durationMs: 60000,
+    },
+    {
+      id: 'c2',
+      callerId: 'normal-user',
+      calleeId: 'admin-user',
+      startedAt: new Date(Date.now() - 1800000),
+      endedAt: new Date(Date.now() - 1700000),
+      durationMs: 120000,
+    },
+  ];
   const messages: Array<Record<string, unknown>> = [{ id: 'm1' }];
   const incidents = new Map<string, Record<string, unknown>>();
 
@@ -84,6 +101,28 @@ jest.mock('@prisma/client', () => {
       },
       callLog: {
         count: jest.fn(async () => calls.length),
+        findMany: jest.fn(async ({ where, select }: {
+          where?: { startedAt?: { gte?: Date } };
+          select?: { callerId?: boolean; calleeId?: boolean };
+        } = {}) => {
+          const filtered = where?.startedAt?.gte
+            ? calls.filter((call) => (call.startedAt as Date) >= where.startedAt!.gte!)
+            : calls;
+          if (select?.callerId || select?.calleeId) {
+            return filtered.map((call) => ({
+              callerId: call.callerId,
+              calleeId: call.calleeId,
+            }));
+          }
+          return filtered;
+        }),
+        aggregate: jest.fn(async () => {
+          const durations = calls.map((c) => c.durationMs as number).filter(Boolean);
+          const avg = durations.length > 0
+            ? durations.reduce((sum, v) => sum + v, 0) / durations.length
+            : null;
+          return { _avg: { durationMs: avg } };
+        }),
       },
       message: {
         count: jest.fn(async () => messages.length),

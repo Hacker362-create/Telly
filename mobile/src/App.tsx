@@ -14,6 +14,8 @@ import CallScreen from './screens/CallScreen';
 import IncomingCallScreen from './screens/IncomingCallScreen';
 import SubscriptionScreen from './screens/SubscriptionScreen';
 import CallHistoryScreen from './screens/CallHistoryScreen';
+import InviteFriendsScreen from './screens/InviteFriendsScreen';
+import ReportIssueScreen from './screens/ReportIssueScreen';
 import { signalingService } from './services/SignalingService';
 import { theme } from './theme';
 
@@ -25,6 +27,8 @@ export type RootStackParamList = {
   Call: { callId: string; remoteUserId: string; incoming: boolean };
   Subscription: undefined;
   CallHistory: undefined;
+  InviteFriends: undefined;
+  ReportIssue: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -88,6 +92,8 @@ export default function App(): React.JSX.Element {
         <Stack.Screen name="Call" component={CallScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Subscription" component={SubscriptionScreen} options={{ title: 'Subscription' }} />
         <Stack.Screen name="CallHistory" component={CallHistoryScreen} options={{ title: 'Recent Calls' }} />
+        <Stack.Screen name="InviteFriends" component={InviteFriendsScreen} options={{ title: 'Invite Friends' }} />
+        <Stack.Screen name="ReportIssue" component={ReportIssueScreen} options={{ title: 'Report Issue' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

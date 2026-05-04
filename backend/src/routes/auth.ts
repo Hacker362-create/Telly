@@ -9,6 +9,11 @@ import { sign } from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
 import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
 import { createTellyID, getEffectiveTellyID } from '../services/TellyIDService';
+import {
+  applyReferralCode,
+  generateReferralCode,
+  normalizeReferralCode,
+} from '../services/ReferralService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -40,11 +45,13 @@ const authLimiter = rateLimit({
 
 // POST /auth/register
 router.post('/register', authLimiter, async (req: Request, res: Response): Promise<void> => {
-  const { name, email, password, phoneNumber } = req.body as {
+  const { name, email, password, phoneNumber, referralCode, deviceId } = req.body as {
     name: string;
     email: string;
     password: string;
     phoneNumber: string;
+    referralCode?: string;
+    deviceId?: string;
   };
 
   if (!name || !email || !password || !phoneNumber) {
@@ -71,11 +78,52 @@ router.post('/register', authLimiter, async (req: Request, res: Response): Promi
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+  const normalizedDeviceId = typeof deviceId === 'string' && deviceId.trim().length > 0
+    ? deviceId.trim()
+    : null;
+
+  if (deviceId && !normalizedDeviceId) {
+    res.status(400).json({ error: 'Invalid device id' });
+    return;
+  }
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     res.status(409).json({ error: 'Email already registered' });
     return;
   }
+
+  if (normalizedDeviceId) {
+    const deviceMatch = await (prisma as unknown as {
+      user: { findFirst: (args: unknown) => Promise<{ id: string } | null> }
+    }).user.findFirst({
+      where: { deviceId: normalizedDeviceId },
+      select: { id: true },
+    });
+    if (deviceMatch) {
+      res.status(409).json({ error: 'This device is already registered' });
+      return;
+    }
+  }
+
+  const normalizedReferral = normalizeReferralCode(referralCode);
+  let referrerId: string | null = null;
+  if (referralCode) {
+    if (!normalizedReferral) {
+      res.status(400).json({ error: 'Invalid referral code' });
+      return;
+    }
+    const referrer = await prisma.user.findUnique({
+      where: { referralCode: normalizedReferral },
+      select: { id: true },
+    });
+    if (!referrer) {
+      res.status(404).json({ error: 'Referral code not found' });
+      return;
+    }
+    referrerId = referrer.id;
+  }
+
+  const newReferralCode = await generateReferralCode(prisma);
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await (prisma as unknown as {
@@ -89,9 +137,19 @@ router.post('/register', authLimiter, async (req: Request, res: Response): Promi
       isAdmin: isConfiguredAdminEmail(normalizedEmail),
       isActive: false,
       subscriptionExpiry: new Date(),
+      referralCode: newReferralCode,
+      deviceId: normalizedDeviceId,
     },
     select: { id: true, name: true, email: true, phoneNumber: true, isAdmin: true },
   });
+
+  if (referrerId && normalizedReferral) {
+    try {
+      await applyReferralCode(prisma, user.id, normalizedReferral);
+    } catch (error) {
+      console.error('Failed to apply referral code:', error);
+    }
+  }
 
   // Auto-generate Telly ID for new user
   let tellyId: string | null = null;

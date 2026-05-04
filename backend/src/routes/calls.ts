@@ -60,18 +60,20 @@ router.get('/history', apiLimiter, requireAuth, async (req: AuthRequest, res: Re
       orderBy: { startedAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
-      select: {
-        id: true,
-        callerId: true,
-        calleeId: true,
-        startedAt: true,
-        endedAt: true,
-        durationMs: true,
-        dataBytes: true,
-        caller: { select: { name: true, phoneNumber: true } },
-        callee: { select: { name: true, phoneNumber: true } },
-      },
-    }),
+        select: {
+          id: true,
+          callerId: true,
+          calleeId: true,
+          startedAt: true,
+          endedAt: true,
+          durationMs: true,
+          dataBytes: true,
+          estimatedAirtimeCost: true,
+          estimatedSavingsKes: true,
+          caller: { select: { name: true, phoneNumber: true } },
+          callee: { select: { name: true, phoneNumber: true } },
+        },
+      }),
   ]);
 
   res.json({

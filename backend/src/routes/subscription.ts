@@ -9,13 +9,11 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createMpesaClient, MpesaClient, PaymentCallback } from '../billing/mpesa';
 import { requireAuth, AuthRequest, apiLimiter } from '../middleware/auth';
+import { DAILY_FREE_MINUTES, getNextResetTime, maybeResetDailyMinutes } from '../services/FreeTierService';
 
 const router = Router();
 const prisma = new PrismaClient();
 const mpesa = createMpesaClient();
-
-/** Daily free-tier limit in minutes (default: 15). */
-const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '15', 10);
 
 /**
  * Safaricom publishes the IP ranges their callback servers use.
@@ -133,43 +131,29 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
     return;
   }
 
-  const user = await prisma.user.findUnique({
+  const now = new Date();
+  await maybeResetDailyMinutes(prisma, userId, now);
+  const refreshed = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       isActive: true,
       subscriptionExpiry: true,
       dailyMinutesUsed: true,
-      lastResetDate: true,
       bonusMinutes: true,
     },
   });
 
-  if (!user) {
+  if (!refreshed) {
     res.status(404).json({ error: 'User not found' });
     return;
   }
 
-  const now = new Date();
-  const isSubscribed = user.isActive && user.subscriptionExpiry > now;
-
-  // Reset daily counter if the last reset was not today
-  const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
-  const isNewDay =
-    !lastReset ||
-    lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
-    lastReset.getUTCMonth() !== now.getUTCMonth() ||
-    lastReset.getUTCDate() !== now.getUTCDate();
-  const dailyMinutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+  const isSubscribed = refreshed.isActive && refreshed.subscriptionExpiry > now;
+  const dailyMinutesUsed = refreshed.dailyMinutesUsed ?? 0;
 
   const freeMinutesRemaining = Math.max(0, DAILY_FREE_MINUTES - dailyMinutesUsed);
-  const bonusMinutes = user.bonusMinutes ?? 0;
-
-  // nextResetTime: UTC midnight of the next day
-  const nextResetTime = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-  )).toISOString();
+  const bonusMinutes = refreshed.bonusMinutes ?? 0;
+  const nextResetTime = getNextResetTime(now).toISOString();
 
   // Cumulative savings from all call logs
   const savingsAgg = await (prisma as unknown as {
@@ -184,7 +168,7 @@ router.get('/status/:userId', apiLimiter, requireAuth, async (req: AuthRequest, 
 
   res.json({
     isSubscribed,
-    subscriptionExpiry: user.subscriptionExpiry,
+    subscriptionExpiry: refreshed.subscriptionExpiry,
     dailyFreeMinutes: DAILY_FREE_MINUTES,
     dailyMinutesUsed,
     freeMinutesRemaining,

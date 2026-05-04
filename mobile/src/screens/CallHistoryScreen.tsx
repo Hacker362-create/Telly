@@ -30,6 +30,9 @@ interface CallLogEntry {
   startedAt: string;
   endedAt: string | null;
   durationMs: number | null;
+  dataBytes?: number | null;
+  estimatedAirtimeCost?: number | null;
+  estimatedSavingsKes?: number | null;
 }
 
 interface HistoryResponse {
@@ -136,6 +139,9 @@ export default function CallHistoryScreen({ navigation }: Props): React.JSX.Elem
           <Text style={styles.meta}>
             {isOutgoing ? 'Outgoing' : 'Incoming'} · {connected ? formatDuration(item.durationMs) : 'Missed'}
           </Text>
+          {typeof item.estimatedSavingsKes === 'number' && (
+            <Text style={styles.savingsMeta}>Saved ~KES {item.estimatedSavingsKes.toFixed(2)}</Text>
+          )}
         </View>
 
         {/* Timestamp */}
@@ -219,6 +225,7 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   remoteId: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   meta: { fontSize: 12, color: theme.colors.muted, marginTop: 2 },
+  savingsMeta: { fontSize: 11, color: '#39d98a', marginTop: 4, fontWeight: '600' },
   timestamp: { fontSize: 11, color: theme.colors.muted },
   footer: { padding: 16 },
   emptyText: { fontSize: 16, color: theme.colors.muted, marginBottom: 16 },

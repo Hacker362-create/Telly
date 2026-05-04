@@ -70,6 +70,7 @@ router.get('/overview', apiLimiter, requireAdmin, async (_req: AuthRequest, res:
     usersTotal,
     adminsTotal,
     activeUsers,
+    paidUsers,
     callsTotal,
     messagesTotal,
     paidTransactions,
@@ -81,6 +82,7 @@ router.get('/overview', apiLimiter, requireAdmin, async (_req: AuthRequest, res:
     p.user.count(),
     p.user.count({ where: { isAdmin: true } }),
     p.user.count({ where: { isActive: true } }),
+    p.user.count({ where: { isActive: true, subscriptionExpiry: { gt: new Date() } } }),
     p.callLog.count(),
     p.message.count(),
     p.transaction?.count?.({ where: { status: 'SUCCESS' } }) ?? Promise.resolve(0),
@@ -104,6 +106,29 @@ router.get('/overview', apiLimiter, requireAdmin, async (_req: AuthRequest, res:
   const totalDataBytes = Number((qualityAggregate as { _sum?: { dataBytes?: number } })
     ?._sum?.dataBytes ?? 0);
 
+  const last24h = new Date();
+  last24h.setDate(last24h.getDate() - 1);
+  const recentCalls = await prisma.callLog.findMany({
+    where: { startedAt: { gte: last24h } },
+    select: { callerId: true, calleeId: true },
+  });
+  const dailyActiveUsers = new Set<string>();
+  recentCalls.forEach((call) => {
+    if (call.callerId) dailyActiveUsers.add(call.callerId);
+    if (call.calleeId) dailyActiveUsers.add(call.calleeId);
+  });
+
+  const avgDurationAgg = await prisma.callLog.aggregate({
+    where: { endedAt: { not: null } },
+    _avg: { durationMs: true },
+  });
+  const avgCallDurationMinutes = avgDurationAgg._avg.durationMs
+    ? Number((avgDurationAgg._avg.durationMs / 60000).toFixed(1))
+    : 0;
+  const conversionToPaidPct = usersTotal > 0
+    ? Number(((paidUsers / usersTotal) * 100).toFixed(1))
+    : 0;
+
   const activeCallsMetric = await readMetricsValue('telly_active_calls');
 
   res.json({
@@ -117,6 +142,9 @@ router.get('/overview', apiLimiter, requireAdmin, async (_req: AuthRequest, res:
     avgLatencyMs: Number(avgLatencyMs.toFixed(1)),
     avgPacketLossPct: Number(avgPacketLossPct.toFixed(2)),
     totalDataMB: Number((totalDataBytes / (1024 * 1024)).toFixed(2)),
+    dailyActiveUsers: dailyActiveUsers.size,
+    avgCallDurationMinutes,
+    conversionToPaidPct,
     liveCalls,
     activeCallsMetric,
     openIncidents,

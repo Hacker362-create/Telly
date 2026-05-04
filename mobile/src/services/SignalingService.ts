@@ -16,7 +16,13 @@ type OfferHandler = (offer: object) => void;
 type IceCandidateHandler = (candidate: object) => void;
 type CallQueuedHandler = (etaMs: number) => void;
 type SubscriptionGraceHandler = (message: string) => void;
-type SubscriptionBalanceHandler = (balance: { freeMinutesRemaining: number; dailyFreeMinutes: number; dailyMinutesUsed: number }) => void;
+type SubscriptionBalanceHandler = (balance: {
+  freeMinutesRemaining: number;
+  dailyFreeMinutes: number;
+  dailyMinutesUsed: number;
+  bonusMinutes?: number;
+  nextResetTime?: string;
+}) => void;
 type IceRestartHandler = () => void;
 type RelayModeHandler = () => void;
 
@@ -146,7 +152,13 @@ class SignalingService {
       this.subscriptionGraceHandlers.forEach((h) => h(message));
     });
 
-    this.socket.on('subscription:balance', (balance: { freeMinutesRemaining: number; dailyFreeMinutes: number; dailyMinutesUsed: number }) => {
+    this.socket.on('subscription:balance', (balance: {
+      freeMinutesRemaining: number;
+      dailyFreeMinutes: number;
+      dailyMinutesUsed: number;
+      bonusMinutes?: number;
+      nextResetTime?: string;
+    }) => {
       this.subscriptionBalanceHandlers.forEach((h) => h(balance));
     });
 

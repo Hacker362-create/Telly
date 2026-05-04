@@ -13,6 +13,7 @@ model User {
   email                String        @unique
   passwordHash         String
   phoneNumber          String        @unique
+  deviceId             String?       @unique
   isAdmin              Boolean       @default(false)
   isActive             Boolean       @default(false)
   subscriptionExpiry   DateTime
@@ -188,4 +189,3 @@ model Feedback {
   @@index([userId])
   @@index([createdAt])
 }
-

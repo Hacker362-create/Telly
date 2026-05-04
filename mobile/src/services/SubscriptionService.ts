@@ -18,6 +18,9 @@ export interface SubscriptionStatus {
   dailyFreeMinutes: number;
   dailyMinutesUsed: number;
   freeMinutesRemaining: number;
+  bonusMinutes: number;
+  nextResetTime?: string;
+  totalSavingsKes?: number;
 }
 
 class SubscriptionService {
@@ -29,9 +32,10 @@ class SubscriptionService {
   async getStatus(): Promise<SubscriptionStatus> {
     const defaultStatus: SubscriptionStatus = {
       isSubscribed: false,
-      dailyFreeMinutes: 10,
+      dailyFreeMinutes: 15,
       dailyMinutesUsed: 0,
-      freeMinutesRemaining: 10,
+      freeMinutesRemaining: 15,
+      bonusMinutes: 0,
     };
     try {
       const userId = await AsyncStorage.getItem('userId');
@@ -44,9 +48,12 @@ class SubscriptionService {
       return {
         isSubscribed: data.isSubscribed ?? false,
         subscriptionExpiry: data.subscriptionExpiry,
-        dailyFreeMinutes: data.dailyFreeMinutes ?? 10,
+        dailyFreeMinutes: data.dailyFreeMinutes ?? 15,
         dailyMinutesUsed: data.dailyMinutesUsed ?? 0,
-        freeMinutesRemaining: data.freeMinutesRemaining ?? 10,
+        freeMinutesRemaining: data.freeMinutesRemaining ?? 15,
+        bonusMinutes: data.bonusMinutes ?? 0,
+        nextResetTime: data.nextResetTime,
+        totalSavingsKes: data.totalSavingsKes,
       };
     } catch {
       return defaultStatus;

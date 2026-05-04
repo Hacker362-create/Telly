@@ -13,6 +13,8 @@ import { webRTCService } from '../services/WebRTCService';
 import { subscriptionService } from '../services/SubscriptionService';
 import { theme } from '../theme';
 
+const AIRTIME_COST_PER_MIN = 4.5;
+
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Call'>;
   route: RouteProp<RootStackParamList, 'Call'>;
@@ -178,6 +180,9 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
     const totalBytes = telemetry.bytesSent + telemetry.bytesReceived;
     const tellyMb = totalBytes / (1024 * 1024);
     const waMb = tellyMb * 2.8;
+    const durationMinutes = Math.max(0, duration) / 60;
+    const estimatedAirtimeCost = Math.round(durationMinutes * AIRTIME_COST_PER_MIN * 100) / 100;
+    const estimatedSavings = estimatedAirtimeCost;
     const success = status === 'connected' && duration >= 5;
 
     signalingService.endCall(callId, {
@@ -196,11 +201,12 @@ export default function CallScreen({ navigation, route }: Props): React.JSX.Elem
 
     // Check free-tier status after call ends — prompt upgrade if limit is near/hit
     subscriptionService.getStatus().then((subStatus) => {
-      const dataMsg = `This call used ${tellyMb.toFixed(2)} MB.\nWhatsApp estimate: ~${waMb.toFixed(2)} MB`;
-      if (!subStatus.isSubscribed && subStatus.freeMinutesRemaining <= 0) {
+      const dataMsg = `This call used ${tellyMb.toFixed(2)} MB\nAirtime would cost ~KES ${estimatedAirtimeCost.toFixed(2)}\nYou saved KES ${estimatedSavings.toFixed(2)}`;
+      const availableMinutes = subStatus.freeMinutesRemaining + (subStatus.bonusMinutes ?? 0);
+      if (!subStatus.isSubscribed && availableMinutes <= 0) {
         Alert.alert(
           'Free minutes used up',
-          `${dataMsg}\n\nYou've used all your free minutes for today. Subscribe for KES 100/month for unlimited calls.`,
+          `${dataMsg}\n\nYou've used today's free minutes. Come back tomorrow or upgrade.`,
           [
             { text: 'Later', style: 'cancel' },
             { text: 'Subscribe', onPress: () => navigation.replace('Subscription') },

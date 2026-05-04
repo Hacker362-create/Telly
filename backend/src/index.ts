@@ -20,6 +20,8 @@ import voicemailRouter from './routes/voicemail';
 import pushTokensRouter from './routes/push-tokens';
 import adminRouter from './routes/admin';
 import tellyIDRouter from './routes/telly-id';
+import referralRouter from './routes/referral';
+import feedbackRouter from './routes/feedback';
 import { getOrCreateWorker } from './media/Worker';
 
 const app = express();
@@ -47,6 +49,8 @@ app.use('/push-tokens', pushTokensRouter);
 app.use('/admin', adminRouter);
 app.use('/metrics', metricsRouter);
 app.use('/telly-id', tellyIDRouter);
+app.use('/referral', referralRouter);
+app.use('/feedback', feedbackRouter);
 
 const httpServer = http.createServer(app);
 createSignalingServer(httpServer);

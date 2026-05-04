@@ -5,6 +5,7 @@
 import type { Socket } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
 import IORedis from 'ioredis';
+import { DAILY_FREE_MINUTES, getNextResetTime, maybeResetDailyMinutes } from '../services/FreeTierService';
 
 const prisma = new PrismaClient();
 
@@ -38,7 +39,6 @@ export interface AuthPayload {
 }
 
 const GRACE_PERIOD_HOURS = parseInt(process.env.SUBSCRIPTION_GRACE_HOURS ?? '0', 10);
-const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '15', 10);
 
 /**
  * Returns true if the user has not yet exhausted their daily free-tier minutes.
@@ -46,21 +46,14 @@ const DAILY_FREE_MINUTES = parseInt(process.env.DAILY_FREE_MINUTES ?? '15', 10);
  * Resets the counter if lastResetDate is not today (UTC).
  */
 async function isWithinFreeTier(userId: string): Promise<boolean> {
+  const now = new Date();
+  await maybeResetDailyMinutes(prisma, userId, now);
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { dailyMinutesUsed: true, lastResetDate: true, bonusMinutes: true },
+    select: { dailyMinutesUsed: true, bonusMinutes: true },
   });
   if (!user) return false;
-
-  const now = new Date();
-  const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
-  const isNewDay =
-    !lastReset ||
-    lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
-    lastReset.getUTCMonth() !== now.getUTCMonth() ||
-    lastReset.getUTCDate() !== now.getUTCDate();
-
-  const minutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+  const minutesUsed = user.dailyMinutesUsed ?? 0;
   const bonusMinutes = user.bonusMinutes ?? 0;
   return minutesUsed < DAILY_FREE_MINUTES || bonusMinutes > 0;
 }
@@ -90,16 +83,17 @@ export async function gatekeeperMiddleware(
       return next();
     }
 
+    const now = new Date();
+    await maybeResetDailyMinutes(prisma, userId, now);
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
+      select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, bonusMinutes: true },
     });
 
     if (!user) {
       return next(new Error('TELLY_LINE_INACTIVE'));
     }
 
-    const now = new Date();
     const expiry = new Date(user.subscriptionExpiry);
     const expiryValid = !Number.isNaN(expiry.getTime());
     const graceDeadline = expiryValid ? new Date(expiry) : new Date(0);
@@ -120,19 +114,17 @@ export async function gatekeeperMiddleware(
     }
 
     // Not subscribed — check free-tier daily limit
-    const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
-    const isNewDay =
-      !lastReset ||
-      lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
-      lastReset.getUTCMonth() !== now.getUTCMonth() ||
-      lastReset.getUTCDate() !== now.getUTCDate();
-    const minutesUsed = isNewDay ? 0 : user.dailyMinutesUsed;
+    const minutesUsed = user.dailyMinutesUsed ?? 0;
+    const freeMinutesRemaining = Math.max(0, DAILY_FREE_MINUTES - minutesUsed);
+    const bonusMinutesRemaining = user.bonusMinutes ?? 0;
 
-    if (minutesUsed < DAILY_FREE_MINUTES) {
+    if (freeMinutesRemaining > 0 || bonusMinutesRemaining > 0) {
       const mutableSocket = socket as Socket & { data?: Record<string, unknown> };
       mutableSocket.data = mutableSocket.data ?? {};
       mutableSocket.data.freeTier = true;
-      mutableSocket.data.freeMinutesRemaining = DAILY_FREE_MINUTES - minutesUsed;
+      mutableSocket.data.freeMinutesRemaining = freeMinutesRemaining;
+      mutableSocket.data.bonusMinutesRemaining = bonusMinutesRemaining;
+      mutableSocket.data.nextResetTime = getNextResetTime(now).toISOString();
       return next();
     }
 

@@ -19,6 +19,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { theme } from '../theme';
 import { signalingService } from '../services/SignalingService';
+import { getOrCreateDeviceId } from '../services/DeviceService';
 import AppCard from '../components/AppCard';
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
@@ -36,6 +37,7 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('+254');
   const [password, setPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async (): Promise<void> => {
@@ -51,6 +53,7 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
 
     setLoading(true);
     try {
+      const deviceId = await getOrCreateDeviceId();
       const response = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -59,6 +62,8 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
           email: email.trim().toLowerCase(),
           password,
           phoneNumber: phone.trim(),
+          referralCode: referralCode.trim() || undefined,
+          deviceId,
         }),
       });
 
@@ -163,6 +168,14 @@ export default function RegisterScreen({ navigation }: Props): React.JSX.Element
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+          />
+
+          <AppInput
+            label="Referral Code (optional)"
+            placeholder="Enter invite code"
+            autoCapitalize="characters"
+            value={referralCode}
+            onChangeText={setReferralCode}
           />
 
           <AppButton

@@ -4,11 +4,13 @@ import type { Socket } from 'socket.io';
 // Mock Prisma
 jest.mock('@prisma/client', () => {
   const mockFindUnique = jest.fn();
+  const mockUpdateMany = jest.fn();
   return {
     PrismaClient: jest.fn().mockImplementation(() => ({
-      user: { findUnique: mockFindUnique },
+      user: { findUnique: mockFindUnique, updateMany: mockUpdateMany },
     })),
     __mockFindUnique: mockFindUnique,
+    __mockUpdateMany: mockUpdateMany,
   };
 });
 
@@ -18,8 +20,9 @@ const mockSetex = jest.fn();
 const mockRedis = { get: mockGet, setex: mockSetex };
 setRedisClient(mockRedis);
 
-const { __mockFindUnique } = jest.requireMock('@prisma/client') as {
+const { __mockFindUnique, __mockUpdateMany } = jest.requireMock('@prisma/client') as {
   __mockFindUnique: jest.Mock;
+  __mockUpdateMany: jest.Mock;
 };
 
 function makeSocket(auth: Record<string, unknown>): Socket {
@@ -30,6 +33,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGet.mockResolvedValue(null);
   mockSetex.mockResolvedValue('OK');
+  __mockUpdateMany.mockResolvedValue({ count: 0 });
 });
 
 describe('gatekeeperMiddleware', () => {
@@ -52,7 +56,7 @@ describe('gatekeeperMiddleware', () => {
     __mockFindUnique.mockResolvedValue({
       isActive: true,
       subscriptionExpiry: expiredDate,
-      dailyMinutesUsed: 10,
+      dailyMinutesUsed: 15,
       lastResetDate: new Date(),
     });
     const next = jest.fn();
@@ -77,7 +81,7 @@ describe('gatekeeperMiddleware', () => {
     __mockFindUnique.mockResolvedValue({
       isActive: false,
       subscriptionExpiry: new Date(Date.now() + 86400000),
-      dailyMinutesUsed: 10,
+      dailyMinutesUsed: 15,
       lastResetDate: new Date(),
     });
     const next = jest.fn();

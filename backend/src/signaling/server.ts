@@ -32,6 +32,7 @@ import {
   PresenceStatus,
 } from '../presence/PresenceStore';
 import { getRedisClient } from './Gatekeeper';
+import { DAILY_FREE_MINUTES, getNextResetTime, maybeResetDailyMinutes } from '../services/FreeTierService';
 
 const prisma = new PrismaClient();
 
@@ -61,6 +62,22 @@ const activeCalls = new Map<string, CallSession>();
 const pendingCallQueue = new Map<string, Array<{ callId: string; callerId: string; offer?: RTCSessionDescriptionInit }>>();
 const userSockets = new Map<string, Set<string>>();
 let signalingIo: Server | null = null;
+
+const AIRTIME_COST_MIN = parseFloat(process.env.AIRTIME_COST_MIN ?? '3');
+const AIRTIME_COST_MAX = parseFloat(process.env.AIRTIME_COST_MAX ?? '6');
+const AIRTIME_COST_PER_MIN = parseFloat(
+  process.env.AIRTIME_COST_PER_MIN ?? String((AIRTIME_COST_MIN + AIRTIME_COST_MAX) / 2),
+);
+
+function estimateAirtimeCost(durationMs: number): { estimatedAirtimeCost: number; estimatedSavingsKes: number } {
+  const minutes = Math.max(0, durationMs) / 60000;
+  const cost = Math.max(0, minutes * AIRTIME_COST_PER_MIN);
+  const rounded = Math.round(cost * 100) / 100;
+  return {
+    estimatedAirtimeCost: rounded,
+    estimatedSavingsKes: rounded,
+  };
+}
 
 function addUserSocket(userId: string, socketId: string): void {
   const ids = userSockets.get(userId) ?? new Set<string>();
@@ -151,14 +168,21 @@ export function createSignalingServer(httpServer: http.Server): Server {
     }
 
     if (socket.data.freeTier) {
-      const dailyFreeMinutes = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
       const freeMinutesRemaining = typeof socket.data.freeMinutesRemaining === 'number'
         ? socket.data.freeMinutesRemaining
-        : dailyFreeMinutes;
+        : DAILY_FREE_MINUTES;
+      const bonusMinutes = typeof socket.data.bonusMinutesRemaining === 'number'
+        ? socket.data.bonusMinutesRemaining
+        : 0;
+      const nextResetTime = typeof socket.data.nextResetTime === 'string'
+        ? socket.data.nextResetTime
+        : getNextResetTime(new Date()).toISOString();
       socket.emit('subscription:balance', {
         freeMinutesRemaining,
-        dailyFreeMinutes,
-        dailyMinutesUsed: dailyFreeMinutes - freeMinutesRemaining,
+        dailyFreeMinutes: DAILY_FREE_MINUTES,
+        dailyMinutesUsed: Math.max(0, DAILY_FREE_MINUTES - freeMinutesRemaining),
+        bonusMinutes,
+        nextResetTime,
       });
     }
 
@@ -447,6 +471,7 @@ export function createSignalingServer(httpServer: http.Server): Server {
       const packetLossPct = Math.max(0, stats?.packetLossPct ?? 0);
       const avgLatencyMs = Math.max(0, stats?.avgLatencyMs ?? 0);
       const success = stats?.success ?? durationMs >= 5000;
+      const { estimatedAirtimeCost, estimatedSavingsKes } = estimateAirtimeCost(durationMs);
 
       io.to(session.roomId).emit('call:ended', { callId, durationMs });
       activeCalls.delete(callId);
@@ -468,6 +493,8 @@ export function createSignalingServer(httpServer: http.Server): Server {
           durationMs,
           dataBytes,
           recordingUrl: stats?.relayUsed ? 'relay:turn' : undefined,
+          estimatedAirtimeCost,
+          estimatedSavingsKes,
         },
       }).catch((err) => console.error('[Signaling] CallLog update failed:', err));
 
@@ -529,33 +556,38 @@ export function createSignalingServer(httpServer: http.Server): Server {
       const durationMinutes = Math.ceil(durationMs / 60000);
       if (durationMinutes > 0) {
         const deductFreeTierMinutes = async (targetUserId: string): Promise<void> => {
+          const now = new Date();
+          await maybeResetDailyMinutes(prisma, targetUserId, now);
           const user = await prisma.user.findUnique({
             where: { id: targetUserId },
-            select: { isActive: true, subscriptionExpiry: true, dailyMinutesUsed: true, lastResetDate: true },
+            select: {
+              isActive: true,
+              subscriptionExpiry: true,
+              dailyMinutesUsed: true,
+              bonusMinutes: true,
+            },
           });
           if (!user) return;
 
-          const now = new Date();
           const isSubscribed = user.isActive && user.subscriptionExpiry > now;
           if (isSubscribed) return; // subscribed users are not on the free tier
 
-          const lastReset = user.lastResetDate ? new Date(user.lastResetDate) : null;
-          const isNewDay =
-            !lastReset ||
-            lastReset.getUTCFullYear() !== now.getUTCFullYear() ||
-            lastReset.getUTCMonth() !== now.getUTCMonth() ||
-            lastReset.getUTCDate() !== now.getUTCDate();
-
-          const currentUsed = isNewDay ? 0 : user.dailyMinutesUsed;
-          const dailyFreeMinutes = parseInt(process.env.DAILY_FREE_MINUTES ?? '10', 10);
-          const newUsed = Math.min(currentUsed + durationMinutes, dailyFreeMinutes);
+          const currentUsed = user.dailyMinutesUsed ?? 0;
+          const currentBonus = user.bonusMinutes ?? 0;
+          const dailyFreeMinutes = DAILY_FREE_MINUTES;
+          const dailyRemaining = Math.max(0, dailyFreeMinutes - currentUsed);
+          const dailyConsumed = Math.min(dailyRemaining, durationMinutes);
+          const remainingAfterDaily = Math.max(0, durationMinutes - dailyConsumed);
+          const bonusConsumed = Math.min(currentBonus, remainingAfterDaily);
+          const newUsed = Math.min(dailyFreeMinutes, currentUsed + dailyConsumed);
+          const newBonus = Math.max(0, currentBonus - bonusConsumed);
           const freeMinutesRemaining = Math.max(0, dailyFreeMinutes - newUsed);
 
           await prisma.user.update({
             where: { id: targetUserId },
             data: {
               dailyMinutesUsed: newUsed,
-              lastResetDate: isNewDay ? now : undefined,
+              bonusMinutes: newBonus,
             },
           });
 
@@ -564,6 +596,8 @@ export function createSignalingServer(httpServer: http.Server): Server {
             freeMinutesRemaining,
             dailyFreeMinutes,
             dailyMinutesUsed: newUsed,
+            bonusMinutes: newBonus,
+            nextResetTime: getNextResetTime(now).toISOString(),
           });
         };
 
@@ -631,6 +665,7 @@ export function terminateActiveCall(callId: string, reason = 'terminated'): bool
 
   const endedAt = new Date();
   const durationMs = Math.max(0, endedAt.getTime() - session.startedAt.getTime());
+  const { estimatedAirtimeCost, estimatedSavingsKes } = estimateAirtimeCost(durationMs);
   signalingIo?.to(session.roomId).emit('call:ended', { callId, durationMs, reason });
 
   activeCalls.delete(callId);
@@ -640,7 +675,7 @@ export function terminateActiveCall(callId: string, reason = 'terminated'): bool
 
   prisma.callLog.updateMany({
     where: { callerId: session.callerId, calleeId: session.calleeId, endedAt: null },
-    data: { endedAt, durationMs },
+    data: { endedAt, durationMs, estimatedAirtimeCost, estimatedSavingsKes },
   }).catch(() => undefined);
 
   return true;
