@@ -1,0 +1,105 @@
+# docker-compose.yml
+# Local development environment for Telly backend services.
+# The backend uses SQLite (no external database required).
+# Run: docker compose up --build
+# Then open: http://localhost:3000
+
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  coturn:
+    image: instrumentisto/coturn:4.6.2
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: file:/app/data/dev.db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev-jwt-secret-change-in-prod
+      MPESA_BASE_URL: https://sandbox.safaricom.co.ke
+      MPESA_CONSUMER_KEY: dummy
+      MPESA_CONSUMER_SECRET: dummy
+      MPESA_SHORT_CODE: "174379"
+      MPESA_PASS_KEY: dummy
+      MPESA_CALLBACK_URL: http://localhost:3000/subscription/callback
+      FCM_SERVER_KEY: dummy
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      MEDIASOUP_LISTEN_IP: "0.0.0.0"
+      MEDIASOUP_ANNOUNCED_IP: "127.0.0.1"
+      MEDIASOUP_RTC_MIN_PORT: "2000"
+      MEDIASOUP_RTC_MAX_PORT: "2999"
+      STUN_SERVERS: "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+      TURN_URLS: "turn:localhost:3478?transport=udp,turn:localhost:3478?transport=tcp"
+      TURN_USERNAME: "telly"
+      TURN_CREDENTIAL: "dev-turn-password"
+      TURN_ENFORCE_RELAY: "false"
+      PORT: 3000
+    depends_on:
+      redis:
+        condition: service_healthy
+      coturn:
+        condition: service_started
+    volumes:
+      - backend_data:/app/data
+
+  bot:
+    build:
+      context: ../bot
+      dockerfile: Dockerfile
+    environment:
+      SIGNALING_URL: http://backend:3000
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: telly_grafana_dev
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  backend_data:
+  grafana_data:

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "copilot/**"]
+  pull_request:
+    branches: [main]
+
+# Minimal permissions: only read-only checkout is needed.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: |
+          if [ -f eslint.config.js ] || [ -f .eslintrc ] || [ -f .eslintrc.js ] || [ -f .eslintrc.cjs ] || [ -f .eslintrc.json ] || [ -f .eslintrc.yml ] || [ -f .eslintrc.yaml ]; then
+            npm run lint --if-present
+          else
+            echo "No ESLint configuration found; skipping lint step."
+          fi
+
+      - name: Run tests
+        run: npm test
+
+  bot:
+    name: Bot tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: bot
+        run: pip install pytest pytest-asyncio aiohttp
+
+      - name: Run tests
+        working-directory: .
+        run: python -m pytest bot/tests/ -v

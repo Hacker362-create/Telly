@@ -1,0 +1,221 @@
+# fastlane/Fastfile — iOS
+# Telly VoIP — iOS build, test and release automation.
+#
+# Prerequisites
+# ─────────────
+# 1. Install Ruby and Bundler: `gem install bundler`
+# 2. From mobile/: `bundle install`
+# 3. Xcode Command Line Tools: `xcode-select --install`
+# 4. Supply environment variables (see each lane for details).
+#
+# Common lanes
+# ────────────
+# bundle exec fastlane ios test             — run unit / UI tests on simulator
+# bundle exec fastlane ios build_debug      — build for simulator (no signing)
+# bundle exec fastlane ios build_release    — build signed IPA for distribution
+# bundle exec fastlane ios deploy_firebase  — distribute IPA via Firebase
+# bundle exec fastlane ios deploy_testflight — upload IPA to TestFlight
+# bundle exec fastlane ios deploy_appstore  — submit release build for App Store review
+# bundle exec fastlane ios sync_certs       — sync code-signing via Match
+
+default_platform(:ios)
+
+PROJECT   = "Telly.xcodeproj"
+WORKSPACE = "Telly.xcworkspace"   # used when CocoaPods is present
+SCHEME    = "Telly"
+BUNDLE_ID = ENV["APP_IDENTIFIER"] || "com.telly"
+
+platform :ios do
+
+  # ── Setup ──────────────────────────────────────────────────────────────────
+
+  before_all do
+    # Runners already provide Xcode; avoid deprecated xcversion dependency.
+  end
+
+  # ── Code Signing (Match) ──────────────────────────────────────────────────
+
+  desc <<~DESC
+    Sync code-signing certificates and provisioning profiles from a private
+    Git repository using Fastlane Match.
+
+    Required env vars:
+      MATCH_GIT_URL        — URL of the private certs repo
+      MATCH_PASSWORD       — encryption passphrase for the certs
+      MATCH_TYPE           — adhoc | appstore | development (default: adhoc)
+  DESC
+  lane :sync_certs do
+    match(
+      type:         ENV["MATCH_TYPE"] || "adhoc",
+      app_identifier: BUNDLE_ID,
+      git_url:      ENV["MATCH_GIT_URL"],
+      password:     ENV["MATCH_PASSWORD"],
+      readonly:     is_ci,
+    )
+  end
+
+  # ── Test ───────────────────────────────────────────────────────────────────
+
+  desc "Run unit and UI tests on the iOS Simulator"
+  lane :test do
+    run_tests(
+      project:     PROJECT,
+      scheme:      SCHEME,
+      devices:     ["iPhone 15"],
+      clean:       true,
+      code_coverage: true,
+      output_directory: "fastlane/test_output",
+      output_files:    "report.junit",
+    )
+  end
+
+  # ── Build: Debug (Simulator) ───────────────────────────────────────────────
+
+  desc "Build the app for the simulator (no code signing required)"
+  lane :build_debug do
+    gym(
+      project:      PROJECT,
+      scheme:       SCHEME,
+      configuration: "Debug",
+      destination:  "generic/platform=iOS Simulator",
+      skip_package_ipa: true,
+      skip_archive: true,
+    )
+    UI.success "Debug build succeeded"
+  end
+
+  # ── Build: Release IPA ────────────────────────────────────────────────────
+
+  desc <<~DESC
+    Build a signed IPA for ad-hoc or App Store distribution.
+
+    Required env vars (if not using Match):
+      CODE_SIGN_IDENTITY              — e.g. "iPhone Distribution"
+      PROVISIONING_PROFILE_SPECIFIER  — profile name
+    Or simply run `sync_certs` first to let Match handle signing.
+  DESC
+  lane :build_release do
+    # Bump build number; on CI uses BUILD_NUMBER, locally uses timestamp
+    build_number = ENV["BUILD_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
+    increment_build_number(
+      build_number: build_number,
+      xcodeproj:    PROJECT,
+    )
+
+    gym(
+      project:            PROJECT,
+      scheme:             SCHEME,
+      configuration:      "Release",
+      export_method:      ENV["MATCH_TYPE"] || "ad-hoc",
+      output_directory:   "fastlane/build",
+      output_name:        "Telly.ipa",
+      clean:              true,
+      include_bitcode:    false,
+      include_symbols:    true,
+      export_options: {
+        provisioningProfiles: {
+          BUNDLE_ID => "match #{ENV["MATCH_TYPE"] || "AdHoc"} #{BUNDLE_ID}",
+        },
+      },
+    )
+    UI.success "IPA → #{lane_context[SharedValues::IPA_OUTPUT_PATH]}"
+  end
+
+  # ── Distribute: Firebase App Distribution ─────────────────────────────────
+
+  desc <<~DESC
+    Build release IPA and distribute to testers via Firebase App Distribution.
+
+    Required env vars:
+      FIREBASE_APP_ID_IOS   — Firebase app ID (e.g. 1:123456:ios:abcdef)
+      FIREBASE_TOKEN        — CI token from `firebase login:ci`
+      FIREBASE_TESTERS      — comma-separated tester emails (optional)
+      FIREBASE_GROUPS       — comma-separated tester groups (optional)
+  DESC
+  lane :deploy_firebase do
+    sync_certs
+    build_release
+
+    firebase_app_distribution(
+      app:               ENV["FIREBASE_APP_ID_IOS"],
+      firebase_cli_token: ENV["FIREBASE_TOKEN"],
+      testers:           ENV["FIREBASE_TESTERS"],
+      groups:            ENV["FIREBASE_GROUPS"],
+      release_notes:     release_notes,
+      ipa_path:          lane_context[SharedValues::IPA_OUTPUT_PATH],
+    )
+  end
+
+  # ── Deploy: TestFlight ────────────────────────────────────────────────────
+
+  desc <<~DESC
+    Build and upload a release IPA to TestFlight for internal beta testing.
+
+    Required env vars:
+      APPLE_ID                          — Apple ID email for App Store Connect
+      APP_STORE_CONNECT_API_KEY_ID      — API key ID
+      APP_STORE_CONNECT_API_ISSUER_ID   — Issuer ID
+      APP_STORE_CONNECT_API_KEY_CONTENT — Private key content (base64 or raw)
+  DESC
+  lane :deploy_testflight do
+    api_key = app_store_connect_api_key(
+      key_id:        ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id:     ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      key_content:   ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
+      is_key_content_base64: true,
+    )
+
+    sync_certs
+    build_release
+
+    upload_to_testflight(
+      api_key:              api_key,
+      ipa:                  lane_context[SharedValues::IPA_OUTPUT_PATH],
+      skip_waiting_for_build_processing: true,
+      changelog:            release_notes,
+    )
+  end
+
+  # ── Deploy: App Store ─────────────────────────────────────────────────────
+
+  desc <<~DESC
+    Submit the current TestFlight build for App Store review.
+    Reuses the api_key env vars from deploy_testflight.
+  DESC
+  lane :deploy_appstore do
+    api_key = app_store_connect_api_key(
+      key_id:        ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id:     ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      key_content:   ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
+      is_key_content_base64: true,
+    )
+
+    # Deliver metadata + screenshots + IPA (skip binary if pre-uploaded to TF)
+    deliver(
+      api_key:           api_key,
+      submit_for_review: true,
+      automatic_release: false,
+      force:             true,
+      skip_screenshots:  true,
+      skip_metadata:     false,
+    )
+  end
+
+  # ── Error handling ─────────────────────────────────────────────────────────
+
+  error do |lane, exception|
+    UI.error "Lane '#{lane}' failed: #{exception.message}"
+  end
+
+  # ── Private helpers ────────────────────────────────────────────────────────
+
+  private_lane :release_notes do
+    notes = ENV["RELEASE_NOTES"]
+    if notes.nil? || notes.empty?
+      `git log -1 --pretty=format:"%s (%h)"`.strip
+    else
+      notes
+    end
+  end
+
+end

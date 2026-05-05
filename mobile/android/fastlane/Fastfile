@@ -1,0 +1,157 @@
+# fastlane/Fastfile — Android
+# Telly VoIP — Android build, test and release automation.
+#
+# Prerequisites
+# ─────────────
+# 1. Install Ruby and Bundler: `gem install bundler`
+# 2. From mobile/: `bundle install`
+# 3. Supply environment variables (see each lane for details).
+#
+# Common lanes
+# ────────────
+# bundle exec fastlane android test          — run unit tests
+# bundle exec fastlane android build_debug   — APK for debug / internal testing
+# bundle exec fastlane android build_release — signed AAB ready for Play Store
+# bundle exec fastlane android deploy_firebase — distribute debug APK via Firebase
+# bundle exec fastlane android deploy_play_internal — upload AAB to Play Internal track
+# bundle exec fastlane android deploy_play_production — promote to Production track
+
+default_platform(:android)
+
+platform :android do
+
+  # ── Setup ──────────────────────────────────────────────────────────────────
+
+  before_all do
+    # Ensure we are running from the android/ directory
+  end
+
+  # ── Test ───────────────────────────────────────────────────────────────────
+
+  desc "Run Android unit tests"
+  lane :test do
+    gradle(
+      task: "test",
+      build_type: "Debug",
+      print_command: true,
+    )
+  end
+
+  # ── Build: Debug ───────────────────────────────────────────────────────────
+
+  desc "Build a debug APK for local installation or Firebase distribution"
+  lane :build_debug do
+    gradle(
+      task: "assemble",
+      build_type: "Debug",
+      print_command: true,
+    )
+    UI.success "Debug APK → #{lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]}"
+  end
+
+  # ── Build: Release (AAB) ───────────────────────────────────────────────────
+
+  desc "Build a signed release Android App Bundle (AAB) for the Play Store"
+  lane :build_release do
+    # Bump the versionCode automatically (CI-friendly: uses BUILD_NUMBER env)
+    build_number = (ENV["BUILD_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")).to_i
+    android_set_version_code(version_code: build_number)
+
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      print_command: true,
+      properties: {
+        "android.injected.signing.store.file"     => ENV["MYAPP_UPLOAD_STORE_FILE"],
+        "android.injected.signing.store.password" => ENV["MYAPP_UPLOAD_STORE_PASSWORD"],
+        "android.injected.signing.key.alias"      => ENV["MYAPP_UPLOAD_KEY_ALIAS"],
+        "android.injected.signing.key.password"   => ENV["MYAPP_UPLOAD_KEY_PASSWORD"],
+      },
+    )
+    UI.success "Release AAB → #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}"
+  end
+
+  # ── Distribute: Firebase App Distribution ─────────────────────────────────
+
+  desc <<~DESC
+    Build debug APK and distribute to testers via Firebase App Distribution.
+
+    Required env vars:
+      FIREBASE_APP_ID_ANDROID   — Firebase app ID (e.g. 1:123456:android:abcdef)
+      FIREBASE_TOKEN            — CI token from `firebase login:ci`
+      FIREBASE_TESTERS          — comma-separated tester emails (optional)
+      FIREBASE_GROUPS           — comma-separated tester groups (optional)
+  DESC
+  lane :deploy_firebase do
+    build_debug
+
+    firebase_app_distribution(
+      app:                  ENV["FIREBASE_APP_ID_ANDROID"],
+      firebase_cli_token:   ENV["FIREBASE_TOKEN"],
+      testers:              ENV["FIREBASE_TESTERS"],
+      groups:               ENV["FIREBASE_GROUPS"],
+      release_notes:        release_notes,
+      android_artifact_type: "APK",
+      android_artifact_path: lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH],
+    )
+  end
+
+  # ── Deploy: Google Play Internal Track ────────────────────────────────────
+
+  desc <<~DESC
+    Build signed AAB and upload to the Google Play Internal test track.
+
+    Required env vars:
+      SUPPLY_JSON_KEY               — path to service-account JSON, or
+      SUPPLY_JSON_KEY_DATA          — raw JSON content
+      MYAPP_UPLOAD_STORE_FILE       — path to .keystore file
+      MYAPP_UPLOAD_STORE_PASSWORD   — keystore password
+      MYAPP_UPLOAD_KEY_ALIAS        — key alias
+      MYAPP_UPLOAD_KEY_PASSWORD     — key password
+  DESC
+  lane :deploy_play_internal do
+    build_release
+
+    upload_to_play_store(
+      track:              "internal",
+      aab:                lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      release_status:     "draft",
+      skip_upload_apk:    true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  # ── Deploy: Google Play Production ────────────────────────────────────────
+
+  desc "Promote the current Internal track release to Production on the Play Store"
+  lane :deploy_play_production do
+    upload_to_play_store(
+      track:          "internal",
+      track_promote_to: "production",
+      skip_upload_apk:  true,
+      skip_upload_aab:  true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  # ── Error handling ─────────────────────────────────────────────────────────
+
+  error do |lane, exception|
+    UI.error "Lane '#{lane}' failed: #{exception.message}"
+  end
+
+  # ── Private helpers ────────────────────────────────────────────────────────
+
+  private_lane :release_notes do
+    notes = ENV["RELEASE_NOTES"]
+    if notes.nil? || notes.empty?
+      # Auto-generate from last git commit when no notes provided
+      `git log -1 --pretty=format:"%s (%h)"`.strip
+    else
+      notes
+    end
+  end
+
+end

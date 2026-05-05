@@ -1,0 +1,114 @@
+name: iOS — Fastlane CI/CD
+
+on:
+  push:
+    branches: [main, "copilot/**"]
+    paths:
+      - "mobile/ios/**"
+      - "mobile/Gemfile"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "mobile/ios/**"
+      - "mobile/Gemfile"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "Fastlane lane to run"
+        required: true
+        default: "build_debug"
+        type: choice
+        options:
+          - test
+          - build_debug
+          - build_release
+          - deploy_firebase
+          - deploy_testflight
+          - deploy_appstore
+
+# Only read-only permissions by default; App Store / Firebase tokens from secrets.
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: iOS (${{ github.event.inputs.lane || 'build_debug' }})
+    runs-on: macos-14        # Apple silicon runner with Xcode 15
+
+    defaults:
+      run:
+        working-directory: mobile/ios
+
+    env:
+      LANE: ${{ github.event.inputs.lane || 'build_debug' }}
+      # App identifiers
+      APP_IDENTIFIER:  com.telly
+      APPLE_TEAM_ID:   ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID:        ${{ secrets.APPLE_ID }}
+      # App Store Connect API key (used by TestFlight / App Store lanes)
+      APP_STORE_CONNECT_API_KEY_ID:      ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_API_ISSUER_ID:   ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+      # Fastlane Match (code-signing)
+      MATCH_GIT_URL:   ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD:  ${{ secrets.MATCH_PASSWORD }}
+      MATCH_TYPE:      adhoc
+      # Firebase App Distribution
+      FIREBASE_APP_ID_IOS: ${{ secrets.FIREBASE_APP_ID_IOS }}
+      FIREBASE_TOKEN:      ${{ secrets.FIREBASE_TOKEN }}
+      FIREBASE_TESTERS:    ${{ secrets.FIREBASE_TESTERS }}
+      # Build number
+      BUILD_NUMBER: ${{ github.run_number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Xcode project
+        id: xcode_project
+        run: |
+          if [[ ! -f Telly.xcodeproj/project.pbxproj ]]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping iOS lane: Telly.xcodeproj/project.pbxproj is missing."
+          elif xcodebuild -list -project Telly.xcodeproj >/dev/null 2>&1; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping iOS lane: Telly.xcodeproj is present but not parseable by xcodebuild."
+          fi
+
+      - name: Set up Ruby
+        if: steps.xcode_project.outputs.valid == 'true'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
+
+      # Cache CocoaPods if a Podfile exists
+      - name: Cache CocoaPods
+        if: steps.xcode_project.outputs.valid == 'true' && hashFiles('mobile/ios/Podfile') != ''
+        uses: actions/cache@v4
+        with:
+          path: mobile/ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('mobile/ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Install CocoaPods
+        if: steps.xcode_project.outputs.valid == 'true' && hashFiles('mobile/ios/Podfile') != ''
+        run: bundle exec pod install
+        working-directory: mobile/ios
+
+      - name: Run Fastlane (${{ env.LANE }})
+        if: steps.xcode_project.outputs.valid == 'true'
+        run: bundle exec fastlane ios ${{ env.LANE }}
+        working-directory: mobile/ios
+
+      # Upload IPA as a workflow artifact (release builds)
+      - name: Upload IPA artifact
+        if: ${{ steps.xcode_project.outputs.valid == 'true' && (env.LANE == 'build_release' || env.LANE == 'deploy_firebase') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telly-release-ipa
+          path: mobile/ios/fastlane/build/Telly.ipa
+          if-no-files-found: warn

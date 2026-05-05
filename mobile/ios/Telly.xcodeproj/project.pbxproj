@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>archiveVersion</key>
+	<string>1</string>
+	<key>classes</key>
+	<dict/>
+	<key>objectVersion</key>
+	<string>56</string>
+	<key>objects</key>
+	<dict>
+
+		<!-- ── Build Configuration ── -->
+		<key>13B07F941A680F5B00A75B9A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXNativeTarget</string>
+			<key>buildConfigurationList</key>
+			<string>13B07F931A680F5B00A75B9A</string>
+			<key>buildPhases</key>
+			<array/>
+			<key>buildRules</key>
+			<array/>
+			<key>dependencies</key>
+			<array/>
+			<key>name</key>
+			<string>Telly</string>
+			<key>productName</key>
+			<string>Telly</string>
+			<key>productType</key>
+			<string>com.apple.product-type.application</string>
+		</dict>
+
+	</dict>
+	<key>rootObject</key>
+	<string>83CBB9F71A601CBA00E9B192</string>
+</dict>
+</plist>

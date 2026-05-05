@@ -1,0 +1,21 @@
+# fastlane/Matchfile — iOS code-signing via Fastlane Match
+# Stores certificates + profiles in a private Git repo (encrypted with MATCH_PASSWORD).
+#
+# First-time setup:
+#   cd mobile/ios && bundle exec fastlane match init
+#   bundle exec fastlane match development
+#   bundle exec fastlane match adhoc
+#   bundle exec fastlane match appstore
+
+git_url(ENV["MATCH_GIT_URL"])
+
+storage_mode("git")
+
+type(ENV["MATCH_TYPE"] || "adhoc")
+
+app_identifier(["com.telly"])
+
+username(ENV["APPLE_ID"])
+
+# Read-only on CI agents so that no certs are accidentally regenerated
+readonly(true) if ENV["CI"]
